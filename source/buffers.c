@@ -284,6 +284,8 @@ void glDeleteVertexArrays(GLsizei n, const GLuint *gl_arrays) {
 	for (int j = 0; j < n; j++) {
 		if (gl_arrays[j]) {
 			vao *gpu_buf = (vao *)gl_arrays[j];
+			if (cur_vao == gpu_buf)
+				cur_vao = &default_vao;
 			mark_as_dirty(gpu_buf->vertex_attrib_pool);
 			vgl_free(gpu_buf);
 		}
@@ -343,6 +345,12 @@ void glDeleteBuffers(GLsizei n, const GLuint *gl_buffers) {
 	for (int j = 0; j < n; j++) {
 		if (gl_buffers[j]) {
 			vbo *gpu_buf = (vbo *)gl_buffers[j];
+			if (vertex_array_unit == gl_buffers[j])
+				vertex_array_unit = 0;
+			if (cur_vao->index_array_unit == gl_buffers[j])
+				cur_vao->index_array_unit = 0;
+			if (uniform_array_unit == gl_buffers[j])
+				uniform_array_unit = 0;
 #if defined(HAVE_SCRATCH_MEMORY) && !defined(DISABLE_CIRCULAR_POOL)
 			if (gpu_buf->ptr && !gpu_buf->scratch) {
 #else
