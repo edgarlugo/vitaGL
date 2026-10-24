@@ -22,6 +22,7 @@
  */
 
 #define _GNU_SOURCE
+#include <ctype.h>
 #include <string.h>
 #include "shared.h"
 #include "utils/glsl_utils.h"
@@ -2361,6 +2362,44 @@ void glGetProgramiv(GLuint progr, GLenum pname, GLint *params) {
 	}
 }
 
+// Adds the attribute locations set with layout(location = N) in a GLSL 1.30+ vertex shader to the bindings applied
+// at link time, after the glBindAttribLocation ones since locations set in the shader take precedence
+static void add_layout_attrib_locations(program *p) {
+	const char *src = p->vshader->source;
+	if (!src)
+		return;
+	const char *l = strstr(src, "layout");
+	while (l) {
+		const char *open = strchr(l, '(');
+		const char *close = open ? strchr(open, ')') : NULL;
+		const char *loc = open ? strstr(open, "location") : NULL;
+		const char *eq = loc ? strchr(loc, '=') : NULL;
+		const char *semi = close ? strchr(close, ';') : NULL;
+		if (close && loc && loc < close && eq && eq < close && semi) {
+			const char *q = close + 1;
+			while (*q == ' ' || *q == '\t')
+				q++;
+			if (!strncmp(q, "in", 2) && (q[2] == ' ' || q[2] == '\t')) {
+				const char *name_end = semi;
+				while (name_end > q && (name_end[-1] == ' ' || name_end[-1] == '\t'))
+					name_end--;
+				const char *name = name_end;
+				while (name > q && (isalnum((unsigned char)name[-1]) || name[-1] == '_'))
+					name--;
+				size_t len = name_end - name;
+				if (len && len < sizeof(p->glsl_attr_map[0].name) && p->num_glsl_attr < VERTEX_ATTRIBS_NUM) {
+					if (!p->glsl_attr_map)
+						p->glsl_attr_map = vglMalloc(sizeof(attr_mapping) * VERTEX_ATTRIBS_NUM);
+					p->glsl_attr_map[p->num_glsl_attr].idx = atoi(eq + 1);
+					vgl_fast_memcpy(p->glsl_attr_map[p->num_glsl_attr].name, name, len);
+					p->glsl_attr_map[p->num_glsl_attr++].name[len] = 0;
+				}
+			}
+		}
+		l = strstr(l + 6, "layout");
+	}
+}
+
 void glLinkProgram(GLuint progr) {
 	THREAD_SAFE()
 
@@ -2386,6 +2425,8 @@ void glLinkProgram(GLuint progr) {
 	// With VGL_MODE_POSTPONED we perform shaders translation+compilation and attributes binding prior actual program linking
 	if (glsl_sema_mode == VGL_MODE_POSTPONED && (p->vshader->is_glsl || p->fshader->is_glsl)) {
 		glsl_sema_mode = VGL_MODE_SHADER_PAIR;
+		if (p->vshader->is_glsl)
+			add_layout_attrib_locations(p);
 #ifdef HAVE_SHADER_CACHE
 		char frag_fname[256], vert_fname[256];
 		int fname_len;

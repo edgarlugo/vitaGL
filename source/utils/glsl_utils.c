@@ -22,6 +22,7 @@
  */
 
 #define _GNU_SOURCE
+#include <ctype.h>
 #include <string.h>
 #include "../shared.h"
 #include "glsl_utils.h"
@@ -1290,6 +1291,119 @@ LOOP_START:
 	return GL_TRUE;
 }
 
+static int glsl_get_version(const char *src) {
+	const char *v = strstr(src, "#version");
+	return v ? atoi(v + 8) : 100;
+}
+
+static GLboolean glsl_starts_with_word(const char *p, const char *word) {
+	size_t len = strlen(word);
+	return !strncmp(p, word, len) && (p[len] == ' ' || p[len] == '\t');
+}
+
+static inline __attribute__((always_inline)) const char *glsl_skip_spaces(const char *p) {
+	while (*p == ' ' || *p == '\t')
+		p++;
+	return p;
+}
+
+/*
+ * GLSL 1.30+ and GLSL ES 3.00 shaders: global in/out declarations are turned into the attribute/varying ones
+ * of GLSL 1.00 handled by the translator, and the fragment output becomes gl_FragColor through a define.
+ * Layout and interpolation qualifiers without a sceGxm equivalent are dropped (attribute locations are
+ * applied at link time by glLinkProgram).
+ */
+static char *glsl_convert_modern(const char *src, GLenum type) {
+	glsl_buffer buf = {NULL, 0, 0};
+	glsl_buffer_reserve(&buf, strlen(src) + 128);
+	glsl_buffer_reset(&buf);
+	const char *defs = "#define texture vgl_texture\n#define textureLod vgl_textureLod\n#define textureProj texture2DProj\n#define roundEven vgl_roundEven\n";
+	glsl_buffer_append(&buf, defs, strlen(defs));
+
+	GLboolean has_frag_out = GL_FALSE;
+	int depth = 0;
+	const char *line = src;
+	while (*line) {
+		const char *eol = strchr(line, '\n');
+		size_t len = eol ? eol - line + 1 : strlen(line);
+		const char *p = glsl_skip_spaces(line);
+		const char *indent_end = p;
+		GLboolean dropped = GL_FALSE, centroid = GL_FALSE;
+		if (depth == 0) {
+			for (;;) {
+				if (!strncmp(p, "layout", 6) && (p[6] == '(' || p[6] == ' ' || p[6] == '\t')) {
+					const char *e = strchr(p, ')');
+					if (!e || e >= line + len)
+						break;
+					p = e + 1;
+				} else if (glsl_starts_with_word(p, "flat") || glsl_starts_with_word(p, "smooth") || glsl_starts_with_word(p, "noperspective")) {
+					while (*p != ' ' && *p != '\t')
+						p++;
+				} else if (glsl_starts_with_word(p, "centroid")) {
+					centroid = GL_TRUE;
+					p += 8;
+				} else
+					break;
+				p = glsl_skip_spaces(p);
+				dropped = GL_TRUE;
+			}
+		}
+
+		const char *keyword = NULL;
+		const char *rest = p;
+		if (depth == 0 && glsl_starts_with_word(p, "in")) {
+			keyword = type == GL_VERTEX_SHADER ? "attribute " : (centroid ? "centroid varying " : "varying ");
+			rest = glsl_skip_spaces(p + 2);
+		} else if (depth == 0 && glsl_starts_with_word(p, "out")) {
+			if (type == GL_VERTEX_SHADER) {
+				keyword = centroid ? "centroid varying " : "varying ";
+				rest = glsl_skip_spaces(p + 3);
+			} else if (!has_frag_out) {
+				// Single color output: its name becomes an alias of gl_FragColor
+				const char *semi = strchr(p, ';');
+				if (semi && semi < line + len) {
+					const char *name_end = semi;
+					while (name_end > p && (name_end[-1] == ' ' || name_end[-1] == '\t'))
+						name_end--;
+					const char *name = name_end;
+					while (name > p && (isalnum((unsigned char)name[-1]) || name[-1] == '_'))
+						name--;
+					if (name < name_end) {
+						glsl_buffer_append(&buf, "#define ", 8);
+						glsl_buffer_append(&buf, name, name_end - name);
+						glsl_buffer_append(&buf, " gl_FragColor\n", 14);
+						has_frag_out = GL_TRUE;
+						line += len;
+						continue;
+					}
+				}
+			}
+		}
+
+		if (keyword) {
+			glsl_buffer_append(&buf, line, indent_end - line);
+			glsl_buffer_append(&buf, keyword, strlen(keyword));
+			glsl_buffer_append(&buf, rest, line + len - rest);
+		} else if (dropped) {
+			glsl_buffer_append(&buf, line, indent_end - line);
+			glsl_buffer_append(&buf, p, line + len - p);
+		} else
+			glsl_buffer_append(&buf, line, len);
+
+		// Tracking braces and parentheses so that function parameters and block members are left untouched
+		for (const char *q = line; q < line + len; q++) {
+			if (q[0] == '/' && q[1] == '/')
+				break;
+			if (*q == '{' || *q == '(')
+				depth++;
+			else if (*q == '}' || *q == ')')
+				depth--;
+		}
+		line += len;
+	}
+	return buf.data;
+}
+
 void glsl_translator_process(shader *s) {
 #ifdef HAVE_FIXED_ATTRIBUTES
 	glsl_attributes_num = 0;
@@ -1315,7 +1429,13 @@ void glsl_translator_process(shader *s) {
 	char *input = vglMalloc(source_size);
 	vgl_fast_memcpy(input, s->source, source_size - 1);
 	input[source_size - 1] = 0;
-	
+
+	if (glsl_get_version(input) >= 130) {
+		char *converted = glsl_convert_modern(input, s->type);
+		vgl_free(input);
+		input = converted;
+	}
+
 	// Nukeing version directive
 	char *str = strstr(input, "#version");
 	if (str) {
