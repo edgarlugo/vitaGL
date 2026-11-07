@@ -1317,7 +1317,7 @@ static char *glsl_convert_modern(const char *src, GLenum type) {
 	glsl_buffer buf = {NULL, 0, 0};
 	glsl_buffer_reserve(&buf, strlen(src) + 128);
 	glsl_buffer_reset(&buf);
-	const char *defs = "#define texture vgl_texture\n#define textureLod vgl_textureLod\n#define textureProj texture2DProj\n#define roundEven vgl_roundEven\n";
+	const char *defs = "#define texture vgl_texture\n#define textureLod vgl_textureLod\n#define textureProj texture2DProj\n#define roundEven vgl_roundEven\n#define texelFetch(x, coord, lod) vgl_texelFetch(x, coord, textureSize(x, lod))\n";
 	glsl_buffer_append(&buf, defs, strlen(defs));
 
 	GLboolean has_frag_out = GL_FALSE;
@@ -1377,6 +1377,10 @@ static char *glsl_convert_modern(const char *src, GLenum type) {
 						continue;
 					}
 				}
+			} else {
+				// Only one color output is available: the others become plain variables whose writes are dropped
+				keyword = "";
+				rest = glsl_skip_spaces(p + 3);
 			}
 		}
 
