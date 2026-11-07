@@ -22,6 +22,7 @@
  */
 
 #define _GNU_SOURCE
+#include <ctype.h>
 #include <string.h>
 #include "../shared.h"
 #include "glsl_utils.h"
@@ -101,18 +102,6 @@ static void glsl_replace_marker(glsl_buffer *buf, GLsizei preamble_size, const c
 	while (type) {
 		size_t offset = type - buf->data;
 		glsl_buffer_replace(buf, offset, 1, replacement, replacement_len);
-		type = strstr(buf->data + preamble_size, marker);
-	}
-}
-
-static void glsl_replace_marker_progressive(glsl_buffer *buf, GLsizei preamble_size, const char *marker, const char *prefix, const char *suffix) {
-	char *type = strstr(buf->data + preamble_size, marker);
-	uint8_t idx = 1;
-	while (type) {
-		char line[32];
-		int line_len = sprintf(line, "%s%u%s", prefix, idx++, suffix);
-		size_t offset = type - buf->data;
-		glsl_buffer_replace(buf, offset, 1, line, line_len);
 		type = strstr(buf->data + preamble_size, marker);
 	}
 }
@@ -962,34 +951,205 @@ ENTRY_HANDLED_GLOBAL:
 }
 
 #ifdef HAVE_GLSL_UBOS
-/* 
+#define GLSL_UBO_MAX_MEMBERS (128)
+#define GLSL_UBO_MAX_SHADOWED (32)
+
+typedef struct {
+	const char *name;
+	uint8_t name_len;
+	uint8_t block; // Index of the anonymous block it belongs to
+} glsl_ubo_member;
+
+static inline __attribute__((always_inline)) GLboolean glsl_is_ident_char(char c) {
+	return isalnum((unsigned char)c) || c == '_';
+}
+
+static GLboolean glsl_is_type_name(const char *s, size_t len) {
+	static const char *types[] = {"void", "bool", "int", "uint", "float", "vec2", "vec3", "vec4", "ivec2", "ivec3", "ivec4",
+		"bvec2", "bvec3", "bvec4", "uvec2", "uvec3", "uvec4", "mat2", "mat3", "mat4", "mat2x2", "mat2x3", "mat2x4", "mat3x2",
+		"mat3x3", "mat3x4", "mat4x2", "mat4x3", "mat4x4", "sampler2D", "samplerCube", "sampler2DShadow", "sampler2DArray",
+		"sampler2DArrayShadow", "sampler3D", "isampler2D", "usampler2D"};
+	for (int i = 0; i < sizeof(types) / sizeof(*types); i++) {
+		if (strlen(types[i]) == len && !strncmp(types[i], s, len))
+			return GL_TRUE;
+	}
+	return GL_FALSE;
+}
+
+/*
  * Experimental function to handle uniform blocks:
- * The idea behind this is to check if a uniform is auniform block, and if so, bind to a
- * specific index.
+ * Every block becomes a sceGxm uniform buffer ("} Name : BUFFER[n];"). Cg wants an instance name, so anonymous
+ * blocks are named after the block and the uses of their members get the instance prefix, unless a function
+ * parameter or local variable with the same name hides them.
  */
 GLboolean glsl_handle_ubos(char *txt, glsl_buffer *out, GLsizei preamble_size) {
-	GLboolean has_ubos = GL_FALSE;
-	uint32_t ubo_count = 0;
+	glsl_ubo_member members[GLSL_UBO_MAX_MEMBERS];
+	const char *block_names[UBOS_NUM];
+	uint8_t block_name_lens[UBOS_NUM];
+	int members_num = 0;
+	uint8_t idx = 1;
+	char line[160];
+
+	// First pass: naming every block and collecting the members of the anonymous ones
+	glsl_buffer_reset(out);
+	char *cur = txt;
 	char *type = strstr(txt + preamble_size, "uniform");
-	// First pass: marking all ubos
-	while (type) {
-		char *s1 = strstr(type, "{");
-		char *s2 = strstr(type, ";");
-		if (s1 < s2) { // Uniform block
-			s1 = strstr(s1, "}");
-			s1 = strstr(s1, ";");
-			s1[0] = '\v';
-			has_ubos = GL_TRUE;
-			ubo_count++;
+	while (type && idx <= UBOS_NUM) {
+		char *open = strchr(type, '{');
+		char *semi = strchr(type, ';');
+		if (!semi)
+			break;
+		if (!open || open > semi || glsl_is_ident_char(type[7]) || (type > txt && glsl_is_ident_char(type[-1]))) {
+			type = strstr(semi, "uniform");
+			continue;
 		}
-		type = strstr(s2, "uniform");
+		char *close = strchr(open, '}');
+		semi = close ? strchr(close, ';') : NULL;
+		if (!semi)
+			break;
+		const char *name = type + 7;
+		while (isspace((unsigned char)*name))
+			name++;
+		const char *name_end = name;
+		while (glsl_is_ident_char(*name_end))
+			name_end++;
+		const char *inst = close + 1;
+		while (isspace((unsigned char)*inst))
+			inst++;
+		const char *inst_end = inst;
+		while (glsl_is_ident_char(*inst_end))
+			inst_end++;
+		glsl_buffer_append(out, cur, close + 1 - cur);
+		if (inst_end > inst) {
+			int len = sprintf(line, " %.*s : BUFFER[%u];", (int)(inst_end - inst), inst, idx);
+			glsl_buffer_append(out, line, len);
+		} else {
+			int len = sprintf(line, " %.*s : BUFFER[%u];", (int)(name_end - name), name, idx);
+			glsl_buffer_append(out, line, len);
+			uint8_t block = idx - 1;
+			block_names[block] = name;
+			block_name_lens[block] = name_end - name;
+			// Members: the last identifier of each declaration, before any array size
+			char *decl = open + 1;
+			while (decl < close && members_num < GLSL_UBO_MAX_MEMBERS) {
+				char *decl_end = memchr(decl, ';', close - decl);
+				if (!decl_end)
+					break;
+				char *q = memchr(decl, '[', decl_end - decl);
+				if (!q)
+					q = decl_end;
+				while (q > decl && isspace((unsigned char)q[-1]))
+					q--;
+				char *id_end = q;
+				while (q > decl && glsl_is_ident_char(q[-1]))
+					q--;
+				if (id_end > q) {
+					members[members_num].name = q;
+					members[members_num].name_len = id_end - q;
+					members[members_num++].block = block;
+				}
+				decl = decl_end + 1;
+			}
+		}
+		idx++;
+		cur = semi + 1;
+		type = strstr(cur, "uniform");
 	}
-	// Second pass: replacing all marked variables
-	if (has_ubos) {
-		glsl_buffer_init(out, txt, strlen(txt), ubo_count * 16);
-		glsl_replace_marker_progressive(out, preamble_size, "\v", ": BUFFER[", "];");
+	if (idx == 1)
+		return GL_FALSE;
+	if (!members_num) {
+		glsl_buffer_append(out, cur, strlen(cur));
+		return GL_TRUE;
 	}
-	return has_ubos;
+
+	// Second pass: prefixing the uses of anonymous block members with the instance name
+	struct {
+		const char *name;
+		uint8_t name_len;
+		int depth;
+	} shadowed[GLSL_UBO_MAX_SHADOWED];
+	int shadowed_num = 0, depth = 0, para_depth = 0;
+	const char *prev = NULL; // Previous identifier, if it is the last token seen
+	size_t prev_len = 0;
+	char last_char = 0;
+	const char *p = cur, *copied = cur;
+	while (*p) {
+		if (!glsl_is_ident_char(*p)) {
+			if (!isspace((unsigned char)*p)) {
+				switch (*p) {
+				case '{':
+					depth++;
+					break;
+				case '}':
+					depth--;
+					while (shadowed_num && shadowed[shadowed_num - 1].depth > depth)
+						shadowed_num--;
+					break;
+				case '(':
+					para_depth++;
+					break;
+				case ')':
+					para_depth--;
+					break;
+				case ';':
+					// Parameters of a function prototype never get a body
+					if (depth == 0)
+						while (shadowed_num && shadowed[shadowed_num - 1].depth > 0)
+							shadowed_num--;
+					break;
+				default:
+					break;
+				}
+				last_char = *p;
+				prev = NULL;
+			}
+			p++;
+			continue;
+		}
+		const char *id = p;
+		while (glsl_is_ident_char(*p))
+			p++;
+		size_t len = p - id;
+		if (isdigit((unsigned char)*id) || last_char == '.') {
+			prev = NULL;
+			last_char = 'a';
+			continue;
+		}
+		for (int i = 0; i < members_num; i++) {
+			if (members[i].name_len != len || strncmp(members[i].name, id, len))
+				continue;
+			const char *next = p;
+			while (isspace((unsigned char)*next))
+				next++;
+			if (prev && glsl_is_type_name(prev, prev_len) && *next != '(') {
+				// A declaration hiding the member: function parameters belong to the body that follows
+				if (shadowed_num < GLSL_UBO_MAX_SHADOWED) {
+					shadowed[shadowed_num].name = id;
+					shadowed[shadowed_num].name_len = len;
+					shadowed[shadowed_num++].depth = (depth == 0 && para_depth > 0) ? 1 : depth;
+				}
+				break;
+			}
+			int j;
+			for (j = shadowed_num - 1; j >= 0; j--) {
+				if (shadowed[j].name_len == len && !strncmp(shadowed[j].name, id, len))
+					break;
+			}
+			if (j < 0) {
+				glsl_buffer_append(out, copied, id - copied);
+				uint8_t block = members[i].block;
+				int l = sprintf(line, "%.*s.", block_name_lens[block], block_names[block]);
+				glsl_buffer_append(out, line, l);
+				copied = id;
+			}
+			break;
+		}
+		prev = id;
+		prev_len = len;
+		last_char = 'a';
+	}
+	glsl_buffer_append(out, copied, strlen(copied));
+	return GL_TRUE;
 }
 #endif
 
