@@ -117,6 +117,21 @@ inline float4 texture2DLod(sampler2D x, float2 coord, float lod) { return tex2Dl
 inline float4 texture2DProjLod(sampler2D x, float3 coord, float lod) { return tex2Dlod(x, float4(coord.xy / coord.z, 0.0f, lod)); }
 inline float4 texture2DProjLod(sampler2D x, float4 coord, float lod) { return tex2Dlod(x, float4(coord.xy / coord.w, 0.0f, lod)); }
 inline float4 textureCubeLod(samplerCUBE x, float3 coord, float lod) { return texCUBElod(x, float4(coord, lod)); }
+inline float4 vgl_texture(sampler2D x, float2 s) { return tex2D(x,s); }
+inline float4 vgl_texture(sampler2D x, float2 s, float b) { return tex2Dbias(x,float4(s,1,b)); }
+inline float4 vgl_texture(samplerCUBE x, float3 s) { return texCUBE(x,s); }
+inline float4 vgl_texture(samplerCUBE x, float3 s, float b) { return texCUBEbias(x,float4(s,b)); }
+inline float4 vgl_textureLod(sampler2D x, float2 coord, float lod) { return tex2Dlod(x, float4(coord, 0.0f, lod)); }
+inline float4 vgl_textureLod(samplerCUBE x, float3 coord, float lod) { return texCUBElod(x, float4(coord, lod)); }
+inline int clamp(int x, int a, int b) { return x < a ? a : (x > b ? b : x); }
+inline int2 clamp(int2 x, int2 a, int2 b) { return int2(clamp(x.x, a.x, b.x), clamp(x.y, a.y, b.y)); }
+inline int3 clamp(int3 x, int3 a, int3 b) { return int3(clamp(x.x, a.x, b.x), clamp(x.y, a.y, b.y), clamp(x.z, a.z, b.z)); }
+inline int4 clamp(int4 x, int4 a, int4 b) { return int4(clamp(x.x, a.x, b.x), clamp(x.y, a.y, b.y), clamp(x.z, a.z, b.z), clamp(x.w, a.w, b.w)); }
+inline float4 vgl_texelFetch(sampler2D x, int2 coord, float2 size) { return tex2Dlod(x, float4((float2(coord) + 0.5f) / size, 0.0f, 0.0f)); }
+inline float vgl_roundEven(float x) { float f = floor(x); float d = x - f; return d > 0.5 || (d == 0.5 && fmod(f, 2.0) != 0.0) ? f + 1.0 : f; }
+inline float2 vgl_roundEven(float2 x) { return float2(vgl_roundEven(x.x), vgl_roundEven(x.y)); }
+inline float3 vgl_roundEven(float3 x) { return float3(vgl_roundEven(x.x), vgl_roundEven(x.y), vgl_roundEven(x.z)); }
+inline float4 vgl_roundEven(float4 x) { return float4(vgl_roundEven(x.x), vgl_roundEven(x.y), vgl_roundEven(x.z), vgl_roundEven(x.w)); }
 #define dFdx(a) ddx(a)
 #define dFdy(a) ddy(a)
 #define s x

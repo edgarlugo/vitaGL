@@ -22,6 +22,7 @@
  */
 
 #define _GNU_SOURCE
+#include <ctype.h>
 #include <string.h>
 #include "shared.h"
 #include "utils/glsl_utils.h"
@@ -547,6 +548,9 @@ void release_shader(shader *s) {
 		}
 #endif
 	}
+	if (s->layout_attrs) {
+		vgl_free(s->layout_attrs);
+	}
 	if (s->source) {
 		vgl_free(s->source);
 	}
@@ -910,6 +914,15 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
 				tex->overridden = GL_FALSE;
 			}
 			sceGxmSetVertexTexture(gxm_context, i, &tex->gxm_tex);
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+			if (p->vert_texunits[i]->sampler) {
+				uint32_t sizes[2];
+				vglGetTexSizes(&tex->gxm_tex, &sizes[0], &sizes[1]);
+				float fsizes[2] = {sizes[0], sizes[1]};
+				vglSetUniformData(p->vert_texunits[i]->vptr, SCE_GXM_PARAMETER_TYPE_F32, 0, 1, 2, fsizes, SCE_GXM_PARAMETER_TYPE_F32);
+				dirty_shader_vert_unifs = GL_TRUE;
+			}
+#endif
 #ifndef SAMPLERS_SPEEDHACK
 		}
 #endif
@@ -1168,6 +1181,15 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean 
 				tex->overridden = GL_FALSE;
 			}
 			sceGxmSetVertexTexture(gxm_context, i, &tex->gxm_tex);
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+			if (p->vert_texunits[i]->sampler) {
+				uint32_t sizes[2];
+				vglGetTexSizes(&tex->gxm_tex, &sizes[0], &sizes[1]);
+				float fsizes[2] = {sizes[0], sizes[1]};
+				vglSetUniformData(p->vert_texunits[i]->vptr, SCE_GXM_PARAMETER_TYPE_F32, 0, 1, 2, fsizes, SCE_GXM_PARAMETER_TYPE_F32);
+				dirty_shader_vert_unifs = GL_TRUE;
+			}
+#endif
 #ifndef SAMPLERS_SPEEDHACK
 		}
 #endif
@@ -1454,6 +1476,15 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
 				tex->overridden = GL_FALSE;
 			}
 			sceGxmSetVertexTexture(gxm_context, i, &tex->gxm_tex);
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+			if (p->vert_texunits[i]->sampler) {
+				uint32_t sizes[2];
+				vglGetTexSizes(&tex->gxm_tex, &sizes[0], &sizes[1]);
+				float fsizes[2] = {sizes[0], sizes[1]};
+				vglSetUniformData(p->vert_texunits[i]->vptr, SCE_GXM_PARAMETER_TYPE_F32, 0, 1, 2, fsizes, SCE_GXM_PARAMETER_TYPE_F32);
+				dirty_shader_vert_unifs = GL_TRUE;
+			}
+#endif
 #ifndef SAMPLERS_SPEEDHACK
 		}
 #endif
@@ -2386,6 +2417,61 @@ void glGetProgramiv(GLuint progr, GLenum pname, GLint *params) {
 	}
 }
 
+// Collects the attribute locations set with layout(location = N) in a GLSL 1.30+ vertex shader. They are kept in the
+// shader since its source is freed once it gets compiled, and the shader can be linked to other programs later
+static void parse_layout_attrib_locations(shader *s) {
+	s->layout_attrs_parsed = GL_TRUE;
+	const char *src = s->source;
+	if (!src)
+		return;
+	attr_mapping *map = NULL;
+	const char *l = strstr(src, "layout");
+	while (l) {
+		const char *open = strchr(l, '(');
+		const char *close = open ? strchr(open, ')') : NULL;
+		const char *loc = open ? strstr(open, "location") : NULL;
+		const char *eq = loc ? strchr(loc, '=') : NULL;
+		const char *semi = close ? strchr(close, ';') : NULL;
+		if (close && loc && loc < close && eq && eq < close && semi) {
+			const char *q = close + 1;
+			while (*q == ' ' || *q == '\t')
+				q++;
+			if (!strncmp(q, "in", 2) && (q[2] == ' ' || q[2] == '\t')) {
+				const char *name_end = semi;
+				while (name_end > q && (name_end[-1] == ' ' || name_end[-1] == '\t'))
+					name_end--;
+				const char *name = name_end;
+				while (name > q && (isalnum((unsigned char)name[-1]) || name[-1] == '_'))
+					name--;
+				size_t len = name_end - name;
+				if (len && len < sizeof(map[0].name) && s->layout_attrs_num < VERTEX_ATTRIBS_NUM) {
+					if (!map)
+						map = vglMalloc(sizeof(attr_mapping) * VERTEX_ATTRIBS_NUM);
+					map[s->layout_attrs_num].idx = atoi(eq + 1);
+					vgl_fast_memcpy(map[s->layout_attrs_num].name, name, len);
+					map[s->layout_attrs_num++].name[len] = 0;
+				}
+			}
+		}
+		l = strstr(l + 6, "layout");
+	}
+	s->layout_attrs = map;
+}
+
+// Adds the attribute locations set with layout(location = N) in a GLSL 1.30+ vertex shader to the bindings applied
+// at link time, after the glBindAttribLocation ones since locations set in the shader take precedence
+static void add_layout_attrib_locations(program *p) {
+	shader *s = p->vshader;
+	if (!s->layout_attrs_parsed)
+		parse_layout_attrib_locations(s);
+	attr_mapping *map = (attr_mapping *)s->layout_attrs;
+	for (int i = 0; i < s->layout_attrs_num && p->num_glsl_attr < VERTEX_ATTRIBS_NUM; i++) {
+		if (!p->glsl_attr_map)
+			p->glsl_attr_map = vglMalloc(sizeof(attr_mapping) * VERTEX_ATTRIBS_NUM);
+		p->glsl_attr_map[p->num_glsl_attr++] = map[i];
+	}
+}
+
 void glLinkProgram(GLuint progr) {
 	THREAD_SAFE()
 
@@ -2411,6 +2497,8 @@ void glLinkProgram(GLuint progr) {
 	// With VGL_MODE_POSTPONED we perform shaders translation+compilation and attributes binding prior actual program linking
 	if (glsl_sema_mode == VGL_MODE_POSTPONED && (p->vshader->is_glsl || p->fshader->is_glsl)) {
 		glsl_sema_mode = VGL_MODE_SHADER_PAIR;
+		// The vertex shader may have been translated already for another program (is_glsl is then false)
+		add_layout_attrib_locations(p);
 #ifdef HAVE_SHADER_CACHE
 		char frag_fname[256], vert_fname[256];
 		int fname_len;
@@ -2471,8 +2559,10 @@ void glLinkProgram(GLuint progr) {
 #endif
 		}
 
-		// Setting progressive default attribute bindings
-		set_default_attrib_binding();
+		// Setting progressive default attribute bindings (glAttachShader already did it for a precompiled vertex shader)
+		if (!p->attr_highest_idx) {
+			set_default_attrib_binding();
+		}
 
 		if (p->glsl_attr_map) {
 			for (int i = 0; i < p->num_glsl_attr; i++) {
@@ -2482,6 +2572,16 @@ void glLinkProgram(GLuint progr) {
 			p->glsl_attr_map = NULL;
 		}
 		glsl_sema_mode = VGL_MODE_POSTPONED;
+	} else if (glsl_sema_mode == VGL_MODE_POSTPONED) {
+		// Both shaders were translated for other programs: their layout(location) attributes still need binding
+		add_layout_attrib_locations(p);
+		if (p->glsl_attr_map) {
+			for (int i = 0; i < p->num_glsl_attr; i++) {
+				glBindAttribLocation(progr, p->glsl_attr_map[i].idx, p->glsl_attr_map[i].name);
+			}
+			vgl_free(p->glsl_attr_map);
+			p->glsl_attr_map = NULL;
+		}
 	}
 
 	if (p->status == PROG_LINKED) {
@@ -2644,15 +2744,56 @@ void glLinkProgram(GLuint progr) {
 				u->type = sceGxmProgramParameterIsSamplerCube(param) ? UNIFORM_CUBE_SAMPLER : UNIFORM_SAMPLER;
 				u->sampler_index = 0;
 				p->vert_texunits[texunit_idx - 1] = u;
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+				u->sampler = NULL;
+				const char *pname = sceGxmProgramParameterGetName(param);
+				for (uint8_t i = 0; i < p->vshader->sized_samplers_num; i++) {
+					if (!strcmp(pname, p->vshader->sized_samplers[i].name)) {
+						char smp[16];
+						sprintf(smp, "vgl_smp%u", i);
+						// If the linked uniform is missing, textureSize usage has been stripped out
+						if (sceGxmProgramFindParameterByName(p->vshader->prog, smp))
+							u->sampler = &p->vshader->sized_samplers[i];
+						break;
+					}
+				}
+#endif
 			} else if (cat == SCE_GXM_PARAMETER_CATEGORY_UNIFORM && sceGxmProgramParameterGetContainerIndex(param) == UBOS_NUM) {
 				uniform *u = &p->vert_uniforms[j++];
 				u->ptr = param;
 				u->type = UNIFORM_DATA;
 				u->vptr = (uint8_t *)p->unif_vbuffer + sceGxmProgramParameterGetResourceIndex(param) * 4;
 				u->fptr = get_uniform_alias_data_ptr(p->frag_uniforms, p->frag_uniforms_num, sceGxmProgramParameterGetName(param));
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+				u->sampler = NULL;
+				const char *pname = sceGxmProgramParameterGetName(param);
+				for (uint8_t i = 0; i < p->vshader->sized_samplers_num; i++) {
+					char smp[16];
+					sprintf(smp, "vgl_smp%u", i);
+					if (!strcmp(pname, smp)) {
+						u->sampler = &p->vshader->sized_samplers[i];
+						break;
+					}
+				}
+#endif
 			}
 			ptr += 4;
 		}
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+		// Assign to every sampler uniform the uniform buffer ptr of the equivalent data uniform
+		for (int i = 0; i < p->vert_uniforms_num; i++) {
+			uniform *u1 = &p->vert_uniforms[i];
+			if (u1->sampler && u1->type != UNIFORM_DATA) {
+				for (int j = 0; j < p->vert_uniforms_num; j++) {
+					uniform *u2 = &p->vert_uniforms[j];
+					if (u2->sampler == u1->sampler && u2->type == UNIFORM_DATA) {
+						u1->vptr = u2->vptr;
+						break;
+					}
+				}
+			}
+		}
+#endif
 #ifdef HAVE_FFP_SHADER_SUPPORT
 		for (int i = 0; i < FFP_BINDS_NUM; i++) {
 			SceGxmProgramParameter *param = sceGxmProgramFindParameterByName(p->vshader->prog, ffp_bind_names[i]);
