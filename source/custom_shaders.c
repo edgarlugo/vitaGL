@@ -528,6 +528,9 @@ void release_shader(shader *s) {
 		}
 #endif
 	}
+	if (s->layout_attrs) {
+		vgl_free(s->layout_attrs);
+	}
 	if (s->source) {
 		vgl_free(s->source);
 	}
@@ -2362,12 +2365,14 @@ void glGetProgramiv(GLuint progr, GLenum pname, GLint *params) {
 	}
 }
 
-// Adds the attribute locations set with layout(location = N) in a GLSL 1.30+ vertex shader to the bindings applied
-// at link time, after the glBindAttribLocation ones since locations set in the shader take precedence
-static void add_layout_attrib_locations(program *p) {
-	const char *src = p->vshader->source;
+// Collects the attribute locations set with layout(location = N) in a GLSL 1.30+ vertex shader. They are kept in the
+// shader since its source is freed once it gets compiled, and the shader can be linked to other programs later
+static void parse_layout_attrib_locations(shader *s) {
+	s->layout_attrs_parsed = GL_TRUE;
+	const char *src = s->source;
 	if (!src)
 		return;
+	attr_mapping *map = NULL;
 	const char *l = strstr(src, "layout");
 	while (l) {
 		const char *open = strchr(l, '(');
@@ -2387,16 +2392,31 @@ static void add_layout_attrib_locations(program *p) {
 				while (name > q && (isalnum((unsigned char)name[-1]) || name[-1] == '_'))
 					name--;
 				size_t len = name_end - name;
-				if (len && len < sizeof(p->glsl_attr_map[0].name) && p->num_glsl_attr < VERTEX_ATTRIBS_NUM) {
-					if (!p->glsl_attr_map)
-						p->glsl_attr_map = vglMalloc(sizeof(attr_mapping) * VERTEX_ATTRIBS_NUM);
-					p->glsl_attr_map[p->num_glsl_attr].idx = atoi(eq + 1);
-					vgl_fast_memcpy(p->glsl_attr_map[p->num_glsl_attr].name, name, len);
-					p->glsl_attr_map[p->num_glsl_attr++].name[len] = 0;
+				if (len && len < sizeof(map[0].name) && s->layout_attrs_num < VERTEX_ATTRIBS_NUM) {
+					if (!map)
+						map = vglMalloc(sizeof(attr_mapping) * VERTEX_ATTRIBS_NUM);
+					map[s->layout_attrs_num].idx = atoi(eq + 1);
+					vgl_fast_memcpy(map[s->layout_attrs_num].name, name, len);
+					map[s->layout_attrs_num++].name[len] = 0;
 				}
 			}
 		}
 		l = strstr(l + 6, "layout");
+	}
+	s->layout_attrs = map;
+}
+
+// Adds the attribute locations set with layout(location = N) in a GLSL 1.30+ vertex shader to the bindings applied
+// at link time, after the glBindAttribLocation ones since locations set in the shader take precedence
+static void add_layout_attrib_locations(program *p) {
+	shader *s = p->vshader;
+	if (!s->layout_attrs_parsed)
+		parse_layout_attrib_locations(s);
+	attr_mapping *map = (attr_mapping *)s->layout_attrs;
+	for (int i = 0; i < s->layout_attrs_num && p->num_glsl_attr < VERTEX_ATTRIBS_NUM; i++) {
+		if (!p->glsl_attr_map)
+			p->glsl_attr_map = vglMalloc(sizeof(attr_mapping) * VERTEX_ATTRIBS_NUM);
+		p->glsl_attr_map[p->num_glsl_attr++] = map[i];
 	}
 }
 
@@ -2425,8 +2445,8 @@ void glLinkProgram(GLuint progr) {
 	// With VGL_MODE_POSTPONED we perform shaders translation+compilation and attributes binding prior actual program linking
 	if (glsl_sema_mode == VGL_MODE_POSTPONED && (p->vshader->is_glsl || p->fshader->is_glsl)) {
 		glsl_sema_mode = VGL_MODE_SHADER_PAIR;
-		if (p->vshader->is_glsl)
-			add_layout_attrib_locations(p);
+		// The vertex shader may have been translated already for another program (is_glsl is then false)
+		add_layout_attrib_locations(p);
 #ifdef HAVE_SHADER_CACHE
 		char frag_fname[256], vert_fname[256];
 		int fname_len;
@@ -2480,8 +2500,10 @@ void glLinkProgram(GLuint progr) {
 			}
 		}
 
-		// Setting progressive default attribute bindings
-		set_default_attrib_binding();
+		// Setting progressive default attribute bindings (glAttachShader already did it for a precompiled vertex shader)
+		if (!p->attr_highest_idx) {
+			set_default_attrib_binding();
+		}
 
 		if (p->glsl_attr_map) {
 			for (int i = 0; i < p->num_glsl_attr; i++) {
@@ -2491,6 +2513,16 @@ void glLinkProgram(GLuint progr) {
 			p->glsl_attr_map = NULL;
 		}
 		glsl_sema_mode = VGL_MODE_POSTPONED;
+	} else if (glsl_sema_mode == VGL_MODE_POSTPONED) {
+		// Both shaders were translated for other programs: their layout(location) attributes still need binding
+		add_layout_attrib_locations(p);
+		if (p->glsl_attr_map) {
+			for (int i = 0; i < p->num_glsl_attr; i++) {
+				glBindAttribLocation(progr, p->glsl_attr_map[i].idx, p->glsl_attr_map[i].name);
+			}
+			vgl_free(p->glsl_attr_map);
+			p->glsl_attr_map = NULL;
+		}
 	}
 
 	if (p->status == PROG_LINKED) {

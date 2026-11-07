@@ -831,6 +831,9 @@ typedef struct {
 	char *source;
 	matrix_uniform *mat;
 	block_uniform *unif_blk;
+	void *layout_attrs; // layout(location = N) attributes of a GLSL 1.30+ vertex shader, kept for every program it is linked to
+	uint8_t layout_attrs_num;
+	GLboolean layout_attrs_parsed;
 #ifdef HAVE_SHARK_LOG
 	char *log;
 #endif
