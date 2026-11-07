@@ -894,6 +894,15 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
 				tex->overridden = GL_FALSE;
 			}
 			sceGxmSetVertexTexture(gxm_context, i, &tex->gxm_tex);
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+			if (p->vert_texunits[i]->sampler) {
+				uint32_t sizes[2];
+				vglGetTexSizes(&tex->gxm_tex, &sizes[0], &sizes[1]);
+				float fsizes[2] = {sizes[0], sizes[1]};
+				vglSetUniformData(p->vert_texunits[i]->vptr, SCE_GXM_PARAMETER_TYPE_F32, 0, 1, 2, fsizes, SCE_GXM_PARAMETER_TYPE_F32);
+				dirty_shader_vert_unifs = GL_TRUE;
+			}
+#endif
 #ifndef SAMPLERS_SPEEDHACK
 		}
 #endif
@@ -1152,6 +1161,15 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean 
 				tex->overridden = GL_FALSE;
 			}
 			sceGxmSetVertexTexture(gxm_context, i, &tex->gxm_tex);
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+			if (p->vert_texunits[i]->sampler) {
+				uint32_t sizes[2];
+				vglGetTexSizes(&tex->gxm_tex, &sizes[0], &sizes[1]);
+				float fsizes[2] = {sizes[0], sizes[1]};
+				vglSetUniformData(p->vert_texunits[i]->vptr, SCE_GXM_PARAMETER_TYPE_F32, 0, 1, 2, fsizes, SCE_GXM_PARAMETER_TYPE_F32);
+				dirty_shader_vert_unifs = GL_TRUE;
+			}
+#endif
 #ifndef SAMPLERS_SPEEDHACK
 		}
 #endif
@@ -1438,6 +1456,15 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
 				tex->overridden = GL_FALSE;
 			}
 			sceGxmSetVertexTexture(gxm_context, i, &tex->gxm_tex);
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+			if (p->vert_texunits[i]->sampler) {
+				uint32_t sizes[2];
+				vglGetTexSizes(&tex->gxm_tex, &sizes[0], &sizes[1]);
+				float fsizes[2] = {sizes[0], sizes[1]};
+				vglSetUniformData(p->vert_texunits[i]->vptr, SCE_GXM_PARAMETER_TYPE_F32, 0, 1, 2, fsizes, SCE_GXM_PARAMETER_TYPE_F32);
+				dirty_shader_vert_unifs = GL_TRUE;
+			}
+#endif
 #ifndef SAMPLERS_SPEEDHACK
 		}
 #endif
@@ -2683,15 +2710,56 @@ void glLinkProgram(GLuint progr) {
 				u->type = sceGxmProgramParameterIsSamplerCube(param) ? UNIFORM_CUBE_SAMPLER : UNIFORM_SAMPLER;
 				u->sampler_index = 0;
 				p->vert_texunits[texunit_idx - 1] = u;
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+				u->sampler = NULL;
+				const char *pname = sceGxmProgramParameterGetName(param);
+				for (uint8_t i = 0; i < p->vshader->sized_samplers_num; i++) {
+					if (!strcmp(pname, p->vshader->sized_samplers[i].name)) {
+						char smp[16];
+						sprintf(smp, "vgl_smp%u", i);
+						// If the linked uniform is missing, textureSize usage has been stripped out
+						if (sceGxmProgramFindParameterByName(p->vshader->prog, smp))
+							u->sampler = &p->vshader->sized_samplers[i];
+						break;
+					}
+				}
+#endif
 			} else if (cat == SCE_GXM_PARAMETER_CATEGORY_UNIFORM && sceGxmProgramParameterGetContainerIndex(param) == UBOS_NUM) {
 				uniform *u = &p->vert_uniforms[j++];
 				u->ptr = param;
 				u->type = UNIFORM_DATA;
 				u->vptr = (uint8_t *)p->unif_vbuffer + sceGxmProgramParameterGetResourceIndex(param) * 4;
 				u->fptr = get_uniform_alias_data_ptr(p->frag_uniforms, p->frag_uniforms_num, sceGxmProgramParameterGetName(param));
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+				u->sampler = NULL;
+				const char *pname = sceGxmProgramParameterGetName(param);
+				for (uint8_t i = 0; i < p->vshader->sized_samplers_num; i++) {
+					char smp[16];
+					sprintf(smp, "vgl_smp%u", i);
+					if (!strcmp(pname, smp)) {
+						u->sampler = &p->vshader->sized_samplers[i];
+						break;
+					}
+				}
+#endif
 			}
 			ptr += 4;
 		}
+#ifdef HAVE_GLSL_TEXTURE_SIZE
+		// Assign to every sampler uniform the uniform buffer ptr of the equivalent data uniform
+		for (int i = 0; i < p->vert_uniforms_num; i++) {
+			uniform *u1 = &p->vert_uniforms[i];
+			if (u1->sampler && u1->type != UNIFORM_DATA) {
+				for (int j = 0; j < p->vert_uniforms_num; j++) {
+					uniform *u2 = &p->vert_uniforms[j];
+					if (u2->sampler == u1->sampler && u2->type == UNIFORM_DATA) {
+						u1->vptr = u2->vptr;
+						break;
+					}
+				}
+			}
+		}
+#endif
 #ifdef HAVE_FFP_SHADER_SUPPORT
 		for (int i = 0; i < FFP_BINDS_NUM; i++) {
 			SceGxmProgramParameter *param = sceGxmProgramFindParameterByName(p->vshader->prog, ffp_bind_names[i]);
