@@ -498,6 +498,13 @@ void glGetIntegerv(GLenum pname, GLint *data) {
 	case GL_MAX_COLOR_ATTACHMENTS:
 		*data = 1;
 		break;
+	case GL_MAX_SAMPLES:
+#ifdef HAVE_ACCURATE_MSAA
+		*data = 4;
+#else
+		*data = 0;
+#endif
+		break;
 	case GL_SAMPLER_BINDING:
 		*data = (GLint)samplers[server_texture_unit];
 		break;

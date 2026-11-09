@@ -529,6 +529,7 @@ extern "C" {
 #define GL_READ_FRAMEBUFFER                             0x8CA8
 #define GL_DRAW_FRAMEBUFFER                             0x8CA9
 #define GL_READ_FRAMEBUFFER_BINDING                     0x8CAA
+#define GL_RENDERBUFFER_SAMPLES                         0x8CAB
 #define GL_COLOR_ATTACHMENT0                            0x8CE0
 #define GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE           0x8CD0
 #define GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME           0x8CD1
@@ -539,7 +540,11 @@ extern "C" {
 #define GL_STENCIL_ATTACHMENT                           0x8D20
 #define GL_FRAMEBUFFER                                  0x8D40
 #define GL_RENDERBUFFER                                 0x8D41
+#define GL_RENDERBUFFER_WIDTH                           0x8D42
+#define GL_RENDERBUFFER_HEIGHT                          0x8D43
+#define GL_RENDERBUFFER_INTERNAL_FORMAT                 0x8D44
 #define GL_STENCIL_INDEX8                               0x8D48
+#define GL_MAX_SAMPLES                                  0x8D57
 #define GL_HALF_FLOAT_OES                               0x8D61
 #define GL_RGB565                                       0x8D62
 #define GL_ETC1_RGB8_OES                                0x8D64
@@ -867,6 +872,7 @@ void glGetPointerv(GLenum pname, void **params);
 void glGetProgramBinary(GLuint program, GLsizei bufSize, GLsizei *length, GLenum *binaryFormat, void *binary);
 void glGetProgramInfoLog(GLuint program, GLsizei maxLength, GLsizei *length, GLchar *infoLog);
 void glGetProgramiv(GLuint program, GLenum pname, GLint *params);
+void glGetRenderbufferParameteriv(GLenum target, GLenum pname, GLint *params);
 void glGetQueryObjectiv(GLuint id, GLenum pname, GLint *params);
 void glGetQueryObjectuiv(GLuint id, GLenum pname, GLuint *params);
 void glGetShaderInfoLog(GLuint handle, GLsizei maxLength, GLsizei *length, GLchar *infoLog);
@@ -998,6 +1004,7 @@ void glRectf(GLfloat x1, GLfloat y1, GLfloat x2, GLfloat y2);
 void glRecti(GLint x1, GLint y1, GLint x2, GLint y2);
 void glReleaseShaderCompiler(void);
 void glRenderbufferStorage(GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
+void glRenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height);
 void glRotated(GLdouble angle, GLdouble x, GLdouble y, GLdouble z);
 void glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z);
 void glRotatex(GLfixed angle, GLfixed x, GLfixed y, GLfixed z);

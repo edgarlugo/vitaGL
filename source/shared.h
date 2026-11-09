@@ -624,6 +624,11 @@ typedef struct {
 typedef struct {
 	GLboolean active;
 	GLboolean wants_stencil;
+	GLuint tex_id; // Texture used as storage by color renderbuffers
+	GLenum internalformat;
+	GLsizei width;
+	GLsizei height;
+	GLsizei samples;
 } renderbuffer;
 
 // Sampler object struct
