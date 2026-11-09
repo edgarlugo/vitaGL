@@ -648,7 +648,7 @@ void scene_reset(void) {
 #endif
 		} else {
 			// Double check that colorsurface and target texture are synced
-			if (sceGxmColorSurfaceGetData(&active_write_fb->colorbuffer) != active_write_fb->tex->data) {
+			if (sceGxmColorSurfaceGetData(&active_write_fb->colorbuffer) != framebuffer_texture_data(active_write_fb, active_write_fb->tex)) {
 				_glFramebufferTexture2D(active_write_fb, GL_COLOR_ATTACHMENT0, active_write_fb->tex, 1);
 			}
 			

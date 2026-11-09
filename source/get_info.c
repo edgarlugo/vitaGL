@@ -277,6 +277,21 @@ void glGetBooleanv(GLenum pname, GLboolean *params) {
 	}
 }
 
+void glGetBooleani_v(GLenum target, GLuint index, GLboolean *data) {
+	switch (target) {
+	case GL_COLOR_WRITEMASK:
+#ifndef SKIP_ERROR_HANDLING
+		if (index != 0) {
+			SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, index)
+		}
+#endif
+		glGetBooleanv(target, data);
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
+}
+
 void glGetFloatv(GLenum pname, GLfloat *data) {
 	int i, j;
 	switch (pname) {
@@ -483,6 +498,13 @@ void glGetIntegerv(GLenum pname, GLint *data) {
 	case GL_MAX_COLOR_ATTACHMENTS:
 		*data = 1;
 		break;
+	case GL_MAX_SAMPLES:
+#ifdef HAVE_ACCURATE_MSAA
+		*data = 4;
+#else
+		*data = 0;
+#endif
+		break;
 	case GL_SAMPLER_BINDING:
 		*data = (GLint)samplers[server_texture_unit];
 		break;
@@ -545,6 +567,12 @@ void glGetIntegerv(GLenum pname, GLint *data) {
 		break;
 	case GL_ELEMENT_ARRAY_BUFFER_BINDING:
 		*data = cur_vao->index_array_unit;
+		break;
+	case GL_COPY_READ_BUFFER:
+		*data = copy_read_unit;
+		break;
+	case GL_COPY_WRITE_BUFFER:
+		*data = copy_write_unit;
 		break;
 	case GL_MAX_ELEMENTS_INDICES:
 	case GL_MAX_ELEMENTS_VERTICES:
@@ -729,6 +757,34 @@ void glGetIntegerv(GLenum pname, GLint *data) {
 	}
 }
 
+void glGetInteger64v(GLenum pname, GLint64 *data) {
+	GLint vals[COMPRESSED_TEXTURE_FORMATS_NUM] = {0};
+	GLint num = 1;
+	switch (pname) {
+	case GL_MAX_SERVER_WAIT_TIMEOUT:
+		*data = 0;
+		return;
+	case GL_COLOR_WRITEMASK:
+	case GL_SCISSOR_BOX:
+	case GL_VIEWPORT:
+		num = 4;
+		break;
+	case GL_POLYGON_MODE:
+	case GL_MAX_VIEWPORT_DIMS:
+		num = 2;
+		break;
+	case GL_COMPRESSED_TEXTURE_FORMATS:
+		num = COMPRESSED_TEXTURE_FORMATS_NUM;
+		break;
+	default:
+		break;
+	}
+	glGetIntegerv(pname, vals);
+	for (int i = 0; i < num; i++) {
+		data[i] = vals[i];
+	}
+}
+
 GLboolean glIsEnabled(GLenum cap) {
 	GLboolean ret = GL_FALSE;
 	switch (cap) {
@@ -809,6 +865,17 @@ GLboolean glIsEnabled(GLenum cap) {
 		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_ENUM, GL_FALSE, cap)
 	}
 	return ret;
+}
+
+GLboolean glIsEnabledi(GLenum target, GLuint index) {
+#ifndef SKIP_ERROR_HANDLING
+	if (target != GL_BLEND) {
+		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_ENUM, GL_FALSE, target)
+	} else if (index != 0) {
+		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_VALUE, GL_FALSE, index)
+	}
+#endif
+	return blend_state;
 }
 
 GLenum glGetError(void) {

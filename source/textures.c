@@ -1934,6 +1934,59 @@ void glTexImage2D(GLenum target, GLint level, GLint internalFormat, GLsizei widt
 	}
 }
 
+void glTexStorage2D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height) {
+	THREAD_SAFE()
+
+#ifndef SKIP_ERROR_HANDLING
+	if (levels < 1 || width < 1 || height < 1) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+
+	// Picking a client format compatible with the requested internal format since no data is uploaded
+	GLenum format, type = GL_UNSIGNED_BYTE;
+	switch (internalformat) {
+	case GL_R8:
+		format = GL_RED;
+		break;
+	case GL_RG8:
+		format = GL_RG;
+		break;
+	case GL_RGB8:
+	case GL_SRGB8:
+	case GL_RGB565:
+		format = GL_RGB;
+		break;
+	case GL_RGBA16F:
+		format = GL_RGBA;
+		type = GL_HALF_FLOAT;
+		break;
+	case GL_RGBA8:
+	case GL_SRGB8_ALPHA8:
+	case GL_RGBA4:
+	case GL_RGB5_A1:
+		format = GL_RGBA;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, internalformat)
+	}
+
+	switch (target) {
+	case GL_TEXTURE_2D:
+		glTexImage2D(target, 0, internalformat, width, height, 0, format, type, NULL);
+		if (levels > 1) // Allocates the whole mipchain up to the last level
+			glTexImage2D(target, levels - 1, internalformat, MAX(width >> (levels - 1), 1), MAX(height >> (levels - 1), 1), 0, format, type, NULL);
+		break;
+	case GL_TEXTURE_CUBE_MAP:
+		for (int i = 0; i < 6; i++) {
+			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, internalformat, width, height, 0, format, type, NULL);
+		}
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
+}
+
 void glTextureImage2D(GLuint tex_id, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *data) {
 	THREAD_SAFE()
 
@@ -2156,6 +2209,126 @@ void glTexParameteriv(GLenum target, GLenum pname, GLint *param) {
 	texture *tex = &texture_slots[texture2d_idx];
 	
 	_glTexParameteri(tex, target, pname, param[0]);
+}
+
+void glTexParameterfv(GLenum target, GLenum pname, const GLfloat *param) {
+	glTexParameterf(target, pname, param[0]);
+}
+
+void glTexParameterIiv(GLenum target, GLenum pname, const GLint *param) {
+	glTexParameteri(target, pname, param[0]);
+}
+
+void glTexParameterIuiv(GLenum target, GLenum pname, const GLuint *param) {
+	glTexParameteri(target, pname, param[0]);
+}
+
+void glGetTexParameteriv(GLenum target, GLenum pname, GLint *params) {
+	THREAD_SAFE()
+
+	// Setting some aliases to make code more readable
+	texture_unit *tex_unit = &texture_units[server_texture_unit];
+	int texture2d_idx;
+	resolve_tex_target(target, SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target));
+	texture *tex = &texture_slots[texture2d_idx];
+
+	switch (pname) {
+	case GL_TEXTURE_MIN_FILTER:
+		if (tex->min_filter == SCE_GXM_TEXTURE_FILTER_POINT) {
+			if (!tex->use_mips)
+				*params = GL_NEAREST;
+			else
+				*params = tex->mip_filter == SCE_GXM_TEXTURE_MIP_FILTER_ENABLED ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST;
+		} else {
+			if (!tex->use_mips)
+				*params = GL_LINEAR;
+			else
+				*params = tex->mip_filter == SCE_GXM_TEXTURE_MIP_FILTER_ENABLED ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR_MIPMAP_NEAREST;
+		}
+		break;
+	case GL_TEXTURE_MAG_FILTER:
+		*params = tex->mag_filter == SCE_GXM_TEXTURE_FILTER_POINT ? GL_NEAREST : GL_LINEAR;
+		break;
+	case GL_TEXTURE_WRAP_S:
+	case GL_TEXTURE_WRAP_T:
+		if (target != GL_TEXTURE_2D) {
+			*params = GL_CLAMP_TO_EDGE;
+		} else {
+			switch (pname == GL_TEXTURE_WRAP_S ? tex->u_mode : tex->v_mode) {
+			case SCE_GXM_TEXTURE_ADDR_REPEAT:
+				*params = GL_REPEAT;
+				break;
+			case SCE_GXM_TEXTURE_ADDR_MIRROR:
+				*params = GL_MIRRORED_REPEAT;
+				break;
+			case SCE_GXM_TEXTURE_ADDR_MIRROR_CLAMP:
+				*params = GL_MIRROR_CLAMP_EXT;
+				break;
+			default:
+				*params = GL_CLAMP_TO_EDGE;
+				break;
+			}
+		}
+		break;
+	case GL_TEXTURE_LOD_BIAS:
+		*params = (GLint)tex->lod_bias - GL_MAX_TEXTURE_LOD_BIAS;
+		break;
+	case GL_TEXTURE_MAX_ANISOTROPY_EXT:
+		*params = 1;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, pname)
+	}
+}
+
+void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat *params) {
+	GLint val;
+	glGetTexParameteriv(target, pname, &val);
+	*params = val;
+}
+
+void glGetTexParameterIiv(GLenum target, GLenum pname, GLint *params) {
+	glGetTexParameteriv(target, pname, params);
+}
+
+void glGetTexParameterIuiv(GLenum target, GLenum pname, GLuint *params) {
+	glGetTexParameteriv(target, pname, (GLint *)params);
+}
+
+void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint *params) {
+	THREAD_SAFE()
+
+	// Setting some aliases to make code more readable
+	texture_unit *tex_unit = &texture_units[server_texture_unit];
+	int texture2d_idx;
+	resolve_tex_target(target, SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target));
+	texture *tex = &texture_slots[texture2d_idx];
+
+#ifndef SKIP_ERROR_HANDLING
+	if (level < 0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, level)
+	}
+#endif
+
+	uint32_t w = 0, h = 0;
+	if (tex->status == TEX_VALID && (level == 0 || (tex->use_mips && level < tex->mip_count)))
+		vglGetTexSizes(&tex->gxm_tex, &w, &h);
+	switch (pname) {
+	case GL_TEXTURE_WIDTH:
+		*params = w ? MAX(w >> level, 1) : 0;
+		break;
+	case GL_TEXTURE_HEIGHT:
+		*params = h ? MAX(h >> level, 1) : 0;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, pname)
+	}
+}
+
+void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat *params) {
+	GLint val;
+	glGetTexLevelParameteriv(target, level, pname, &val);
+	*params = val;
 }
 
 void glTextureParameteriv(GLuint tex_id, GLenum pname, GLint *param) {

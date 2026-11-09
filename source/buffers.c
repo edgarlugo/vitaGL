@@ -30,6 +30,8 @@ uint32_t main_vertex_attrib_pool_size = DISABLED_ATTRIBS_POOL_SIZE;
 uint32_t aux_vertex_attrib_pool_size = DISABLED_AUX_ATTRIBS_POOL_SIZE;
 uint32_t vertex_array_unit = 0; // Current in-use vertex array buffer unit
 uint32_t uniform_array_unit = 0; // Current in-use uniform buffer unit
+uint32_t copy_read_unit = 0; // Current in-use copy read buffer unit
+uint32_t copy_write_unit = 0; // Current in-use copy write buffer unit
 
 void *vertex_object; // Vertex object address for vgl* draw pipeline
 void *color_object; // Color object address for vgl* draw pipeline
@@ -246,6 +248,131 @@ void glGetQueryObjectuiv(GLuint id, GLenum pname, GLuint *params) {
 	}
 }
 
+// Fence sync objects are signaled when the scene they were inserted into ends, through the occlusion queries fence
+typedef struct {
+	uint32_t magic;
+	uint32_t value;
+} fence_sync;
+#define FENCE_SYNC_MAGIC 0x434E5953
+
+GLsync glFenceSync(GLenum condition, GLbitfield flags) {
+	THREAD_SAFE()
+
+#ifndef SKIP_ERROR_HANDLING
+	if (condition != GL_SYNC_GPU_COMMANDS_COMPLETE) {
+		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_ENUM, 0, condition)
+	} else if (flags != 0) {
+		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_VALUE, 0, flags)
+	}
+#endif
+	fence_sync *s = (fence_sync *)vglMalloc(sizeof(fence_sync));
+	s->magic = FENCE_SYNC_MAGIC;
+	s->value = query_fence.value + 1;
+	return (GLsync)s;
+}
+
+void glDeleteSync(GLsync sync) {
+	THREAD_SAFE()
+
+	fence_sync *s = (fence_sync *)sync;
+	if (!s)
+		return;
+#ifndef SKIP_ERROR_HANDLING
+	if (s->magic != FENCE_SYNC_MAGIC) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+	s->magic = 0;
+	vgl_free(s);
+}
+
+GLboolean glIsSync(GLsync sync) {
+	fence_sync *s = (fence_sync *)sync;
+	return (s && s->magic == FENCE_SYNC_MAGIC) ? GL_TRUE : GL_FALSE;
+}
+
+GLenum glClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
+	THREAD_SAFE()
+
+	fence_sync *s = (fence_sync *)sync;
+#ifndef SKIP_ERROR_HANDLING
+	if (!s || s->magic != FENCE_SYNC_MAGIC) {
+		SET_GL_ERROR_WITH_RET(GL_INVALID_VALUE, GL_WAIT_FAILED)
+	} else if (flags & ~GL_SYNC_FLUSH_COMMANDS_BIT) {
+		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_VALUE, GL_WAIT_FAILED, flags)
+	}
+#endif
+	if (s->value <= *query_fence.address)
+		return GL_ALREADY_SIGNALED;
+
+	// Ending the scene the fence was inserted into, if it is still the current one
+	if (s->value > query_fence.value && ((flags & GL_SYNC_FLUSH_COMMANDS_BIT) || timeout)) {
+		dirty_query = GL_TRUE;
+		scene_reset();
+	}
+	if (!timeout)
+		return GL_TIMEOUT_EXPIRED;
+
+	if (timeout == GL_TIMEOUT_IGNORED) {
+		sceGxmNotificationWait(&query_fence);
+	} else {
+		SceUInt64 end = sceKernelGetProcessTimeWide() + timeout / 1000;
+		while (s->value > *query_fence.address) {
+			if (sceKernelGetProcessTimeWide() >= end)
+				return GL_TIMEOUT_EXPIRED;
+			sceKernelDelayThread(100);
+		}
+	}
+	return GL_CONDITION_SATISFIED;
+}
+
+void glWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
+	THREAD_SAFE()
+
+	// Commands are executed in order by the GPU, so there's nothing to wait for
+#ifndef SKIP_ERROR_HANDLING
+	fence_sync *s = (fence_sync *)sync;
+	if (!s || s->magic != FENCE_SYNC_MAGIC) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	} else if (flags != 0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, flags)
+	} else if (timeout != GL_TIMEOUT_IGNORED) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+}
+
+void glGetSynciv(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei *length, GLint *values) {
+	THREAD_SAFE()
+
+	fence_sync *s = (fence_sync *)sync;
+#ifndef SKIP_ERROR_HANDLING
+	if (!s || s->magic != FENCE_SYNC_MAGIC) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+	if (length)
+		*length = bufSize > 0 ? 1 : 0;
+	if (bufSize < 1)
+		return;
+	switch (pname) {
+	case GL_OBJECT_TYPE:
+		*values = GL_SYNC_FENCE;
+		break;
+	case GL_SYNC_CONDITION:
+		*values = GL_SYNC_GPU_COMMANDS_COMPLETE;
+		break;
+	case GL_SYNC_STATUS:
+		*values = (s->value <= *query_fence.address) ? GL_SIGNALED : GL_UNSIGNALED;
+		break;
+	case GL_SYNC_FLAGS:
+		*values = 0;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, pname)
+	}
+}
+
 void glGenVertexArrays(GLsizei n, GLuint *res) {
 	THREAD_SAFE()
 
@@ -307,6 +434,7 @@ inline __attribute__((always_inline)) void glGenBuffers(GLsizei n, GLuint *res) 
 			vgl_log("%s:%d glGenBuffers failed to alloc a buffer (%d/%lu).\n", __FILE__, __LINE__, i, n);
 #endif
 		gpu_buf->ptr = NULL;
+		gpu_buf->size = 0;
 		gpu_buf->last_frame = OBJ_NOT_USED;
 		res[i] = (GLuint)gpu_buf;
 	}
@@ -328,6 +456,12 @@ void glBindBuffer(GLenum target, GLuint buffer) {
 		break;
 	case GL_UNIFORM_BUFFER:
 		uniform_array_unit = buffer;
+		break;
+	case GL_COPY_READ_BUFFER:
+		copy_read_unit = buffer;
+		break;
+	case GL_COPY_WRITE_BUFFER:
+		copy_write_unit = buffer;
 		break;
 	default:
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
@@ -458,6 +592,12 @@ void glBufferData(GLenum target, GLsizei size, const GLvoid *data, GLenum usage)
 	case GL_UNIFORM_BUFFER:
 		gpu_buf = (vbo *)uniform_array_unit;
 		break;
+	case GL_COPY_READ_BUFFER:
+		gpu_buf = (vbo *)copy_read_unit;
+		break;
+	case GL_COPY_WRITE_BUFFER:
+		gpu_buf = (vbo *)copy_write_unit;
+		break;
 	default:
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
 	}
@@ -533,11 +673,68 @@ void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void
 	case GL_UNIFORM_BUFFER:
 		gpu_buf = (vbo *)uniform_array_unit;
 		break;
+	case GL_COPY_READ_BUFFER:
+		gpu_buf = (vbo *)copy_read_unit;
+		break;
+	case GL_COPY_WRITE_BUFFER:
+		gpu_buf = (vbo *)copy_write_unit;
+		break;
 	default:
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
 	}
 	
 	glNamedBufferSubData((GLuint)gpu_buf, offset, size, data);
+}
+
+void glCopyNamedBufferSubData(GLuint readBuffer, GLuint writeBuffer, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size) {
+	THREAD_SAFE()
+
+	vbo *read_buf = (vbo *)readBuffer;
+#ifndef SKIP_ERROR_HANDLING
+	if (!read_buf) {
+		SET_GL_ERROR(GL_INVALID_OPERATION)
+	} else if (readOffset < 0 || size < 0 || readOffset + size > read_buf->size) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	} else if (readBuffer == writeBuffer && readOffset < writeOffset + size && writeOffset < readOffset + size) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+
+	// The source is still valid if the destination gets reallocated, since old buffers are freed only after some frames
+	glNamedBufferSubData(writeBuffer, writeOffset, size, (uint8_t *)read_buf->ptr + readOffset);
+}
+
+static vbo *get_copy_buffer(GLenum target) {
+	switch (target) {
+	case GL_ARRAY_BUFFER:
+		return (vbo *)vertex_array_unit;
+	case GL_ELEMENT_ARRAY_BUFFER:
+		return (vbo *)cur_vao->index_array_unit;
+	case GL_UNIFORM_BUFFER:
+		return (vbo *)uniform_array_unit;
+	case GL_COPY_READ_BUFFER:
+		return (vbo *)copy_read_unit;
+	case GL_COPY_WRITE_BUFFER:
+		return (vbo *)copy_write_unit;
+	default:
+		return (vbo *)-1;
+	}
+}
+
+void glCopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size) {
+	THREAD_SAFE()
+
+	vbo *read_buf = get_copy_buffer(readTarget);
+	vbo *write_buf = get_copy_buffer(writeTarget);
+#ifndef SKIP_ERROR_HANDLING
+	if (read_buf == (vbo *)-1) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, readTarget)
+	} else if (write_buf == (vbo *)-1) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, writeTarget)
+	}
+#endif
+
+	glCopyNamedBufferSubData((GLuint)read_buf, (GLuint)write_buf, readOffset, writeOffset, size);
 }
 
 inline void *glMapNamedBuffer(GLuint buffer, GLenum access) {
@@ -574,6 +771,12 @@ void *glMapBuffer(GLenum target, GLenum access) {
 		break;
 	case GL_UNIFORM_BUFFER:
 		gpu_buf = (vbo *)uniform_array_unit;
+		break;
+	case GL_COPY_READ_BUFFER:
+		gpu_buf = (vbo *)copy_read_unit;
+		break;
+	case GL_COPY_WRITE_BUFFER:
+		gpu_buf = (vbo *)copy_write_unit;
 		break;
 	default:
 		SET_GL_ERROR_WITH_RET(GL_INVALID_ENUM, NULL)
@@ -632,6 +835,12 @@ void *glMapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitf
 	case GL_UNIFORM_BUFFER:
 		gpu_buf = (vbo *)uniform_array_unit;
 		break;
+	case GL_COPY_READ_BUFFER:
+		gpu_buf = (vbo *)copy_read_unit;
+		break;
+	case GL_COPY_WRITE_BUFFER:
+		gpu_buf = (vbo *)copy_write_unit;
+		break;
 	default:
 		SET_GL_ERROR_WITH_RET(GL_INVALID_ENUM, NULL)
 	}
@@ -664,6 +873,12 @@ GLboolean glUnmapBuffer(GLenum target) {
 		break;
 	case GL_UNIFORM_BUFFER:
 		gpu_buf = (vbo *)uniform_array_unit;
+		break;
+	case GL_COPY_READ_BUFFER:
+		gpu_buf = (vbo *)copy_read_unit;
+		break;
+	case GL_COPY_WRITE_BUFFER:
+		gpu_buf = (vbo *)copy_write_unit;
 		break;
 	default:
 		SET_GL_ERROR_WITH_RET(GL_INVALID_ENUM, GL_FALSE)
@@ -700,6 +915,12 @@ void glFlushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length)
 		break;
 	case GL_UNIFORM_BUFFER:
 		gpu_buf = (vbo *)uniform_array_unit;
+		break;
+	case GL_COPY_READ_BUFFER:
+		gpu_buf = (vbo *)copy_read_unit;
+		break;
+	case GL_COPY_WRITE_BUFFER:
+		gpu_buf = (vbo *)copy_write_unit;
 		break;
 	default:
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
@@ -746,11 +967,23 @@ void glGetBufferParameteriv(GLenum target, GLenum pname, GLint *params) {
 	case GL_UNIFORM_BUFFER:
 		gpu_buf = (vbo *)uniform_array_unit;
 		break;
+	case GL_COPY_READ_BUFFER:
+		gpu_buf = (vbo *)copy_read_unit;
+		break;
+	case GL_COPY_WRITE_BUFFER:
+		gpu_buf = (vbo *)copy_write_unit;
+		break;
 	default:
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
 	}
 	
 	glGetNamedBufferParameteriv((GLuint)gpu_buf, pname, params);
+}
+
+void glGetBufferParameteri64v(GLenum target, GLenum pname, GLint64 *params) {
+	GLint val;
+	glGetBufferParameteriv(target, pname, &val);
+	*params = val;
 }
 
 // VGL_EXT_gpu_objects_array extension implementation
@@ -977,6 +1210,12 @@ void vglBufferData(GLenum target, const GLvoid *data) {
 		break;
 	case GL_UNIFORM_BUFFER:
 		gpu_buf = (vbo *)uniform_array_unit;
+		break;
+	case GL_COPY_READ_BUFFER:
+		gpu_buf = (vbo *)copy_read_unit;
+		break;
+	case GL_COPY_WRITE_BUFFER:
+		gpu_buf = (vbo *)copy_write_unit;
 		break;
 	default:
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)

@@ -246,6 +246,7 @@ inline __attribute__((always_inline)) void glGenFramebuffers(GLsizei n, GLuint *
 			framebuffers[i].depthbuffer_ptr = NULL;
 			framebuffers[i].target = NULL;
 			framebuffers[i].tex = NULL;
+			framebuffers[i].face = 0;
 		}
 		if (j >= n)
 			break;
@@ -254,6 +255,80 @@ inline __attribute__((always_inline)) void glGenFramebuffers(GLsizei n, GLuint *
 
 void glCreateFramebuffers(GLsizei n, GLuint *ids) {
 	glGenFramebuffers(n, ids);
+}
+
+static void renderbuffer_storage(renderbuffer *rb, GLenum internalformat, GLsizei samples, GLsizei width, GLsizei height) {
+	switch (internalformat) {
+	case GL_STENCIL_INDEX8:
+	case GL_DEPTH24_STENCIL8:
+	case GL_DEPTH32F_STENCIL8:
+		rb->wants_stencil = GL_TRUE;
+		break;
+	case GL_DEPTH_COMPONENT:
+	case GL_DEPTH_COMPONENT16:
+	case GL_DEPTH_COMPONENT24:
+	case GL_DEPTH_COMPONENT32:
+	case GL_DEPTH_COMPONENT32F:
+		rb->wants_stencil = GL_FALSE;
+		break;
+	case GL_R8:
+	case GL_RG8:
+	case GL_RGB8:
+	case GL_RGB565:
+	case GL_RGBA4:
+	case GL_RGB5_A1:
+	case GL_RGBA8:
+	case GL_SRGB8_ALPHA8:
+	case GL_RGBA16F:
+		{
+			// Color renderbuffers are backed by a texture, so they can be attached like one
+			if (!rb->tex_id)
+				glGenTextures(1, &rb->tex_id);
+			texture_unit *tex_unit = &texture_units[server_texture_unit];
+			GLuint old_tex = tex_unit->tex_id[0];
+			tex_unit->tex_id[0] = rb->tex_id;
+			glTexStorage2D(GL_TEXTURE_2D, 1, internalformat, width, height);
+			tex_unit->tex_id[0] = old_tex;
+		}
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, internalformat)
+	}
+	rb->internalformat = internalformat;
+	rb->width = width;
+	rb->height = height;
+	rb->samples = samples > 4 ? 4 : samples;
+}
+
+static void attach_renderbuffer(framebuffer *fb, GLenum attachment, renderbuffer *rb) {
+	switch (attachment) {
+	case GL_COLOR_ATTACHMENT0:
+#ifndef SKIP_ERROR_HANDLING
+		if (rb && !rb->tex_id) {
+			SET_GL_ERROR(GL_INVALID_OPERATION)
+		}
+#endif
+#ifdef HAVE_ACCURATE_MSAA
+		update_framebuffer_msaa(fb, gl_samples_to_gxm(rb ? rb->samples : 0));
+#endif
+		fb->face = 0;
+		_glFramebufferTexture2D(fb, attachment, &texture_slots[rb ? rb->tex_id : 0], rb ? rb->tex_id : 0);
+		break;
+	case GL_DEPTH_STENCIL_ATTACHMENT:
+	case GL_DEPTH_ATTACHMENT:
+	case GL_STENCIL_ATTACHMENT:
+		// Discarding any previously bound hidden depth buffers
+		if (fb->depthbuffer_ptr) {
+#ifndef DEPTH_STENCIL_HACK
+			mark_depth_stencil_as_dirty(fb->depthbuffer_ptr);
+#endif
+			fb->depthbuffer_ptr = NULL;
+		}
+		fb->depthbuffer_state = (rb && rb->wants_stencil) ? DEPTHBUFFER_WANTS_STENCIL : DEPTHBUFFER_MISSING;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, attachment)
+	}
 }
 
 void glGenRenderbuffers(GLsizei n, GLuint *ids) {
@@ -272,6 +347,11 @@ void glGenRenderbuffers(GLsizei n, GLuint *ids) {
 			ids[j++] = (GLuint)&renderbuffers[i];
 			renderbuffers[i].active = GL_TRUE;
 			renderbuffers[i].wants_stencil = GL_FALSE;
+			renderbuffers[i].tex_id = 0;
+			renderbuffers[i].internalformat = GL_RGBA4;
+			renderbuffers[i].width = 0;
+			renderbuffers[i].height = 0;
+			renderbuffers[i].samples = 0;
 		}
 		if (j >= n)
 			break;
@@ -329,6 +409,10 @@ void glDeleteRenderbuffers(GLsizei n, const GLuint *ids) {
 		renderbuffer *rb = (renderbuffer *)ids[--n];
 		if (rb) {
 			rb->active = GL_FALSE;
+			if (rb->tex_id) {
+				glDeleteTextures(1, &rb->tex_id);
+				rb->tex_id = 0;
+			}
 		}
 	}
 }
@@ -391,23 +475,7 @@ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbu
 	}
 #endif
 
-	// Discarding any previously bound hidden depth buffers
-	if (fb->depthbuffer_ptr) {
-#ifndef DEPTH_STENCIL_HACK
-		mark_depth_stencil_as_dirty(fb->depthbuffer_ptr);
-#endif
-	}
-	fb->depthbuffer_ptr = NULL;
-
-	switch (attachment) {
-	case GL_DEPTH_STENCIL_ATTACHMENT:
-	case GL_DEPTH_ATTACHMENT:
-	case GL_STENCIL_ATTACHMENT:
-		fb->depthbuffer_state = (rb && ((renderbuffer *)rb)->wants_stencil) ? DEPTHBUFFER_WANTS_STENCIL : DEPTHBUFFER_MISSING;
-		break;
-	default:
-		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, attachment)
-	}
+	attach_renderbuffer(fb, attachment, (renderbuffer *)rb);
 }
 
 void glNamedFramebufferRenderbuffer(GLuint target, GLenum attachment, GLenum renderbuffertarget, GLuint rb) {
@@ -422,24 +490,7 @@ void glNamedFramebufferRenderbuffer(GLuint target, GLenum attachment, GLenum ren
 #endif
 
 	framebuffer *fb = (framebuffer *)target;
-
-	// Discarding any previously bound hidden depth buffers
-	if (fb->depthbuffer_ptr) {
-#ifndef DEPTH_STENCIL_HACK
-		mark_depth_stencil_as_dirty(fb->depthbuffer_ptr);
-#endif
-		fb->depthbuffer_ptr = NULL;
-	}
-
-	switch (attachment) {
-	case GL_DEPTH_STENCIL_ATTACHMENT:
-	case GL_DEPTH_ATTACHMENT:
-	case GL_STENCIL_ATTACHMENT:
-		fb->depthbuffer_state = (rb && ((renderbuffer *)rb)->wants_stencil) ? DEPTHBUFFER_WANTS_STENCIL : DEPTHBUFFER_MISSING;
-		break;
-	default:
-		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, attachment)
-	}
+	attach_renderbuffer(fb, attachment, (renderbuffer *)rb);
 }
 
 void glRenderbufferStorage(GLenum target, GLenum internalformat, GLsizei width, GLsizei height) {
@@ -454,41 +505,57 @@ void glRenderbufferStorage(GLenum target, GLenum internalformat, GLsizei width, 
 	}
 #endif
 
-	switch (internalformat) {
-	case GL_STENCIL_INDEX8:
-	case GL_DEPTH24_STENCIL8:
-	case GL_DEPTH32F_STENCIL8:
-		active_rb->wants_stencil = GL_TRUE;
+	renderbuffer_storage(active_rb, internalformat, 0, width, height);
+}
+
+void glRenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height) {
+	THREAD_SAFE()
+
+#ifndef SKIP_ERROR_HANDLING
+	if (target != GL_RENDERBUFFER) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
+	if (width < 0 || height < 0 || samples < 0) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+
+	renderbuffer_storage(active_rb, internalformat, samples, width, height);
+}
+
+void glGetRenderbufferParameteriv(GLenum target, GLenum pname, GLint *params) {
+	THREAD_SAFE()
+
+#ifndef SKIP_ERROR_HANDLING
+	if (target != GL_RENDERBUFFER) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	} else if (!active_rb) {
+		SET_GL_ERROR(GL_INVALID_OPERATION)
+	}
+#endif
+
+	switch (pname) {
+	case GL_RENDERBUFFER_WIDTH:
+		*params = active_rb->width;
 		break;
-	case GL_DEPTH_COMPONENT:
-	case GL_DEPTH_COMPONENT16:
-	case GL_DEPTH_COMPONENT24:
-	case GL_DEPTH_COMPONENT32:
-	case GL_DEPTH_COMPONENT32F:
+	case GL_RENDERBUFFER_HEIGHT:
+		*params = active_rb->height;
+		break;
+	case GL_RENDERBUFFER_INTERNAL_FORMAT:
+		*params = active_rb->internalformat;
+		break;
+	case GL_RENDERBUFFER_SAMPLES:
+		*params = active_rb->samples;
 		break;
 	default:
-		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, internalformat)
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, pname)
 	}
 }
 
 void glNamedRenderbufferStorage(GLuint target, GLenum internalformat, GLsizei width, GLsizei height) {
 	THREAD_SAFE()
 
-	renderbuffer *rb = (renderbuffer *)target;
-	switch (internalformat) {
-	case GL_DEPTH24_STENCIL8:
-	case GL_DEPTH32F_STENCIL8:
-		rb->wants_stencil = GL_TRUE;
-		break;
-	case GL_DEPTH_COMPONENT:
-	case GL_DEPTH_COMPONENT16:
-	case GL_DEPTH_COMPONENT24:
-	case GL_DEPTH_COMPONENT32:
-	case GL_DEPTH_COMPONENT32F:
-		break;
-	default:
-		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, internalformat)
-	}
+	renderbuffer_storage((renderbuffer *)target, internalformat, 0, width, height);
 }
 
 inline void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint tex_id, GLint level) {
@@ -511,7 +578,7 @@ inline void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum text
 #ifndef SKIP_ERROR_HANDLING
 	if (!fb) {
 		SET_GL_ERROR(GL_INVALID_OPERATION)
-	} else if (textarget != GL_TEXTURE_2D) {
+	} else if (textarget != GL_TEXTURE_2D && (textarget < GL_TEXTURE_CUBE_MAP_POSITIVE_X || textarget > GL_TEXTURE_CUBE_MAP_NEGATIVE_Z)) {
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, textarget)
 	} else if (tex_id >= TEXTURES_NUM) {
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, tex_id)
@@ -523,6 +590,7 @@ inline void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum text
 #ifdef HAVE_ACCURATE_MSAA
 	update_framebuffer_msaa(fb, SCE_GXM_MULTISAMPLE_NONE);
 #endif
+	fb->face = textarget == GL_TEXTURE_2D ? 0 : textarget - GL_TEXTURE_CUBE_MAP_POSITIVE_X;
 	_glFramebufferTexture2D(fb, attachment, &texture_slots[tex_id], tex_id);
 }
 
@@ -561,6 +629,7 @@ void glFramebufferTexture2DMultisample(GLenum target, GLenum attachment, GLenum 
 #endif
 
 	update_framebuffer_msaa(fb, gl_samples_to_gxm(samples));
+	fb->face = 0;
 	_glFramebufferTexture2D(fb, attachment, &texture_slots[tex_id], tex_id);
 #else
 	vgl_log("%s:%d %s: This function requires HAVE_ACCURATE_MSAA=1 flag.\n", __FILE__, __LINE__, __func__);
@@ -587,6 +656,7 @@ inline void glNamedFramebufferTexture2D(GLuint target, GLenum attachment, GLenum
 #ifdef HAVE_ACCURATE_MSAA
 	update_framebuffer_msaa(fb, SCE_GXM_MULTISAMPLE_NONE);
 #endif
+	fb->face = 0;
 	_glFramebufferTexture2D(fb, attachment, &texture_slots[tex_id], tex_id);
 }
 
@@ -596,6 +666,27 @@ void glFramebufferTexture(GLenum target, GLenum attachment, GLuint tex_id, GLint
 
 void glNamedFramebufferTexture(GLuint target, GLenum attachment, GLuint tex_id, GLint level) {
 	glNamedFramebufferTexture2D(target, attachment, GL_TEXTURE_2D, tex_id, level);
+}
+
+void glInvalidateFramebuffer(GLenum target, GLsizei numAttachments, const GLenum *attachments) {
+	// Contents are always stored at the end of a scene, so invalidation is only validated
+#ifndef SKIP_ERROR_HANDLING
+	switch (target) {
+	case GL_FRAMEBUFFER:
+	case GL_DRAW_FRAMEBUFFER:
+	case GL_READ_FRAMEBUFFER:
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
+	if (numAttachments < 0) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+}
+
+void glInvalidateSubFramebuffer(GLenum target, GLsizei numAttachments, const GLenum *attachments, GLint x, GLint y, GLsizei width, GLsizei height) {
+	glInvalidateFramebuffer(target, numAttachments, attachments);
 }
 
 GLenum glCheckFramebufferStatus(GLenum target) {

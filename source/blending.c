@@ -460,3 +460,12 @@ void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha
 	else
 		change_blend_mask();
 }
+
+void glColorMaski(GLuint buf, GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) {
+#ifndef SKIP_ERROR_HANDLING
+	if (buf != 0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, buf)
+	}
+#endif
+	glColorMask(red, green, blue, alpha);
+}

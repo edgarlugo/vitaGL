@@ -289,6 +289,7 @@ static SceGxmAttributeFormat orig_fmt[VERTEX_ATTRIBS_NUM];
 static unsigned char orig_size[VERTEX_ATTRIBS_NUM];
 static vbo *ubo_buf[UBOS_NUM];
 static uint32_t ubo_offset[UBOS_NUM];
+static uint32_t ubo_size[UBOS_NUM];
 static uint8_t tex2d_override = 0;
 GLboolean dirty_shader_frag_unifs = GL_TRUE;
 GLboolean dirty_shader_vert_unifs = GL_TRUE;
@@ -2213,6 +2214,77 @@ void glGetAttachedShaders(GLuint prog, GLsizei maxCount, GLsizei *count, GLuint 
 	}
 }
 
+void glDetachShader(GLuint prog, GLuint shad) {
+	THREAD_SAFE()
+
+	// Grabbing passed shader and program
+	shader *s = shaders[shad - 1];
+	program *p = &progs[prog - 1];
+
+#ifndef SKIP_ERROR_HANDLING
+	if (!s || (p->vshader != s && p->fshader != s)) {
+		SET_GL_ERROR(GL_INVALID_OPERATION)
+	}
+#endif
+
+	// Linked programs keep using their shaders, which are released together with the program
+	if (p->status != PROG_UNLINKED)
+		return;
+
+	if (p->vshader == s)
+		p->vshader = NULL;
+	else
+		p->fshader = NULL;
+	s->ref_counter--;
+	if (s->dirty && s->ref_counter == 0) {
+		release_shader(s);
+	}
+}
+
+void glValidateProgram(GLuint prog) {
+	// GL_VALIDATE_STATUS matches GL_LINK_STATUS since a linked program can always be drawn with
+}
+
+void glGetShaderPrecisionFormat(GLenum shaderType, GLenum precisionType, GLint *range, GLint *precision) {
+	switch (precisionType) {
+	case GL_LOW_FLOAT:
+	case GL_MEDIUM_FLOAT:
+	case GL_HIGH_FLOAT:
+		range[0] = 127;
+		range[1] = 127;
+		*precision = 23;
+		break;
+	case GL_LOW_INT:
+	case GL_MEDIUM_INT:
+	case GL_HIGH_INT:
+		range[0] = 31;
+		range[1] = 30;
+		*precision = 0;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, precisionType)
+	}
+}
+
+void glBindFragDataLocation(GLuint prog, GLuint colorNumber, const GLchar *name) {
+	// Fragment shaders have a single output, so it can only be bound to the first draw buffer
+#ifndef SKIP_ERROR_HANDLING
+	if (colorNumber != 0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, colorNumber)
+	}
+#endif
+}
+
+GLint glGetFragDataLocation(GLuint prog, const GLchar *name) {
+	program *p = &progs[prog - 1];
+#ifndef SKIP_ERROR_HANDLING
+	if (p->status == PROG_UNLINKED) {
+		SET_GL_ERROR_WITH_RET(GL_INVALID_OPERATION, -1)
+	}
+#endif
+	return strncmp(name, "gl_", 3) ? 0 : -1;
+}
+
 GLuint glCreateProgram(void) {
 	// Looking for a free program slot
 	GLuint i, j, res = 0xFFFFFFFF;
@@ -3328,6 +3400,39 @@ void glProgramUniform4iv(GLuint prog, GLint location, GLsizei count, const GLint
 	glUniform4iv(location, count, value);
 }
 
+// Unsigned integers are handled as signed ones by shaders
+void glUniform1ui(GLint location, GLuint v0) {
+	glUniform1i(location, v0);
+}
+
+void glUniform2ui(GLint location, GLuint v0, GLuint v1) {
+	glUniform2i(location, v0, v1);
+}
+
+void glUniform3ui(GLint location, GLuint v0, GLuint v1, GLuint v2) {
+	glUniform3i(location, v0, v1, v2);
+}
+
+void glUniform4ui(GLint location, GLuint v0, GLuint v1, GLuint v2, GLuint v3) {
+	glUniform4i(location, v0, v1, v2, v3);
+}
+
+void glUniform1uiv(GLint location, GLsizei count, const GLuint *value) {
+	glUniform1iv(location, count, (const GLint *)value);
+}
+
+void glUniform2uiv(GLint location, GLsizei count, const GLuint *value) {
+	glUniform2iv(location, count, (const GLint *)value);
+}
+
+void glUniform3uiv(GLint location, GLsizei count, const GLuint *value) {
+	glUniform3iv(location, count, (const GLint *)value);
+}
+
+void glUniform4uiv(GLint location, GLsizei count, const GLuint *value) {
+	glUniform4iv(location, count, (const GLint *)value);
+}
+
 inline void glUniform4f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3) {
 	THREAD_SAFE()
 
@@ -3415,6 +3520,69 @@ inline void glUniformMatrix3fv(GLint location, GLsizei count, GLboolean transpos
 		value = tmp;
 	}
 	vgl_fill_uniform_data(value, SCE_GXM_PARAMETER_TYPE_F32, 3, 3 * count)
+}
+
+static void uniform_matrix_nxm(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value, int cols, int rows) {
+	// Checking if the uniform does exist
+	if (location == -1 || location == 0)
+		return;
+
+	// Grabbing passed uniform
+	int offs = 0;
+	uniform *u = (uniform *)get_uniform_from_ptr(location, &offs);
+
+	// Setting passed value to desired uniform, column by column
+	float stack_tmp[4 * 12];
+	if (transpose) {
+		float *tmp = count <= 4 ? stack_tmp : gpu_alloc_mapped_temp(count * cols * rows * sizeof(float));
+		for (int i = 0; i < count; i++) {
+			const float *src = &value[i * cols * rows];
+			float *dst = &tmp[i * cols * rows];
+			for (int c = 0; c < cols; c++) {
+				for (int r = 0; r < rows; r++) {
+					dst[c * rows + r] = src[r * cols + c];
+				}
+			}
+		}
+		value = tmp;
+	}
+	vgl_fill_uniform_data(value, SCE_GXM_PARAMETER_TYPE_F32, rows, cols * count)
+}
+
+void glUniformMatrix2x3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 2, 3);
+}
+
+void glUniformMatrix2x4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 2, 4);
+}
+
+void glUniformMatrix3x2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 3, 2);
+}
+
+void glUniformMatrix3x4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 3, 4);
+}
+
+void glUniformMatrix4x2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 4, 2);
+}
+
+void glUniformMatrix4x3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 4, 3);
 }
 
 void glProgramUniformMatrix3fv(GLuint prog, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
@@ -3563,6 +3731,25 @@ void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm
 		cur_vao->vertex_layout_version = ++vertex_layout_cur_ver;
 	}
 #endif
+}
+
+void glVertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei stride, const void *pointer) {
+	THREAD_SAFE()
+
+	switch (type) {
+	case GL_BYTE:
+	case GL_UNSIGNED_BYTE:
+	case GL_SHORT:
+	case GL_UNSIGNED_SHORT:
+		glVertexAttribPointer(index, size, type, GL_FALSE, stride, pointer);
+		break;
+	case GL_INT:
+	case GL_UNSIGNED_INT:
+		// sceGxm has no 32 bit integer attribute format, and untyped attributes are rejected for integer inputs
+		vgl_log("%s:%d %s: 32 bit integer attributes are not supported.\n", __FILE__, __LINE__, __func__);
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, type)
+	}
 }
 
 void glVertexAttribDivisor(GLuint index, GLuint divisor) {
@@ -3799,6 +3986,22 @@ void glVertexAttrib4fv(GLuint index, const GLfloat *v) {
 	cur_vao->vertex_attrib_value[index][3] = v[3];
 }
 
+void glVertexAttribI4i(GLuint index, GLint v0, GLint v1, GLint v2, GLint v3) {
+	glVertexAttrib4f(index, v0, v1, v2, v3);
+}
+
+void glVertexAttribI4ui(GLuint index, GLuint v0, GLuint v1, GLuint v2, GLuint v3) {
+	glVertexAttrib4f(index, v0, v1, v2, v3);
+}
+
+void glVertexAttribI4iv(GLuint index, const GLint *v) {
+	glVertexAttrib4f(index, v[0], v[1], v[2], v[3]);
+}
+
+void glVertexAttribI4uiv(GLuint index, const GLuint *v) {
+	glVertexAttrib4f(index, v[0], v[1], v[2], v[3]);
+}
+
 void glBindBufferRange(GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) {
 	THREAD_SAFE()
 
@@ -3814,6 +4017,7 @@ void glBindBufferRange(GLenum target, GLuint index, GLuint buffer, GLintptr offs
 
 	ubo_buf[index] = (vbo *)buffer;
 	ubo_offset[index] = offset;
+	ubo_size[index] = size;
 }
 
 void glBindBufferBase(GLenum target, GLuint index, GLuint buffer) {
@@ -3829,6 +4033,28 @@ void glBindBufferBase(GLenum target, GLuint index, GLuint buffer) {
 
 	ubo_buf[index] = (vbo *)buffer;
 	ubo_offset[index] = 0;
+	ubo_size[index] = 0;
+}
+
+void glGetIntegeri_v(GLenum target, GLuint index, GLint *data) {
+#ifndef SKIP_ERROR_HANDLING
+	if (index >= UBOS_NUM) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, index)
+	}
+#endif
+	switch (target) {
+	case GL_UNIFORM_BUFFER_BINDING:
+		*data = (GLint)ubo_buf[index];
+		break;
+	case GL_UNIFORM_BUFFER_START:
+		*data = ubo_offset[index];
+		break;
+	case GL_UNIFORM_BUFFER_SIZE:
+		*data = ubo_size[index];
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
 }
 
 void glBindAttribLocation(GLuint prog, GLuint index, const GLchar *name) {
