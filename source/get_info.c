@@ -277,6 +277,21 @@ void glGetBooleanv(GLenum pname, GLboolean *params) {
 	}
 }
 
+void glGetBooleani_v(GLenum target, GLuint index, GLboolean *data) {
+	switch (target) {
+	case GL_COLOR_WRITEMASK:
+#ifndef SKIP_ERROR_HANDLING
+		if (index != 0) {
+			SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, index)
+		}
+#endif
+		glGetBooleanv(target, data);
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
+}
+
 void glGetFloatv(GLenum pname, GLfloat *data) {
 	int i, j;
 	switch (pname) {
@@ -809,6 +824,17 @@ GLboolean glIsEnabled(GLenum cap) {
 		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_ENUM, GL_FALSE, cap)
 	}
 	return ret;
+}
+
+GLboolean glIsEnabledi(GLenum target, GLuint index) {
+#ifndef SKIP_ERROR_HANDLING
+	if (target != GL_BLEND) {
+		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_ENUM, GL_FALSE, target)
+	} else if (index != 0) {
+		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_VALUE, GL_FALSE, index)
+	}
+#endif
+	return blend_state;
 }
 
 GLenum glGetError(void) {

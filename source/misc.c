@@ -640,6 +640,28 @@ void glDisable(GLenum cap) {
 	}
 }
 
+void glEnablei(GLenum target, GLuint index) {
+#ifndef SKIP_ERROR_HANDLING
+	if (target != GL_BLEND) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	} else if (index != 0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, index)
+	}
+#endif
+	glEnable(target);
+}
+
+void glDisablei(GLenum target, GLuint index) {
+#ifndef SKIP_ERROR_HANDLING
+	if (target != GL_BLEND) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	} else if (index != 0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, index)
+	}
+#endif
+	glDisable(target);
+}
+
 void glClear(GLbitfield mask) {
 	THREAD_SAFE()
 

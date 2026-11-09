@@ -456,6 +456,9 @@ extern "C" {
 #define GL_SAMPLES_PASSED                               0x8914
 #define GL_SAMPLER_BINDING                              0x8919
 #define GL_UNIFORM_BUFFER                               0x8A11
+#define GL_UNIFORM_BUFFER_BINDING                       0x8A28
+#define GL_UNIFORM_BUFFER_START                         0x8A29
+#define GL_UNIFORM_BUFFER_SIZE                          0x8A2A
 #define GL_FRAGMENT_SHADER                              0x8B30
 #define GL_VERTEX_SHADER                                0x8B31
 #define GL_MAX_VARYING_FLOATS                           0x8B4B
@@ -736,6 +739,7 @@ void glColor4us(GLushort red, GLushort green, GLushort blue, GLushort alpha);
 void glColor4usv(const GLushort *c);
 void glColor4x(GLfixed red, GLfixed green, GLfixed blue, GLfixed alpha);
 void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
+void glColorMaski(GLuint buf, GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
 void glColorMaterial(GLenum face, GLenum mode);
 void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
 void glColorTable(GLenum target, GLenum internalformat, GLsizei width, GLenum format, GLenum type, const GLvoid *data);
@@ -772,6 +776,7 @@ void glDepthRange(GLdouble nearVal, GLdouble farVal);
 void glDepthRangef(GLfloat nearVal, GLfloat farVal);
 void glDepthRangex(GLfixed nearVal, GLfixed farVal);
 void glDisable(GLenum cap);
+void glDisablei(GLenum target, GLuint index);
 void glDisableClientState(GLenum array);
 void glDisableVertexAttribArray(GLuint index);
 void glDrawArrays(GLenum mode, GLint first, GLsizei count);
@@ -782,6 +787,7 @@ void glDrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void
 void glDrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void *indices);
 void glDrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, void *indices, GLint basevertex);
 void glEnable(GLenum cap);
+void glEnablei(GLenum target, GLuint index);
 void glEnableClientState(GLenum array);
 void glEnableVertexAttribArray(GLuint index);
 void glEnd(void);
@@ -818,12 +824,14 @@ void glGetActiveAttrib(GLuint prog, GLuint index, GLsizei bufSize, GLsizei *leng
 void glGetActiveUniform(GLuint prog, GLuint index, GLsizei bufSize, GLsizei *length, GLint *size, GLenum *type, GLchar *name);
 void glGetAttachedShaders(GLuint prog, GLsizei maxCount, GLsizei *count, GLuint *shads);
 GLint glGetAttribLocation(GLuint prog, const GLchar *name);
+void glGetBooleani_v(GLenum target, GLuint index, GLboolean *data);
 void glGetBooleanv(GLenum pname, GLboolean *params);
 void glGetBufferParameteriv(GLenum target, GLenum pname, GLint *params);
 void glGetDoublev(GLenum pname, GLdouble *data);
 GLenum glGetError(void);
 void glGetFloatv(GLenum pname, GLfloat *data);
 void glGetFramebufferAttachmentParameteriv(GLenum target, GLenum attachment, GLenum pname, GLint *params);
+void glGetIntegeri_v(GLenum target, GLuint index, GLint *data);
 void glGetIntegerv(GLenum pname, GLint *data);
 void glGetNamedBufferParameteriv(GLuint buffer, GLenum pname, GLint *params);
 void glGetPointerv(GLenum pname, void **params);
@@ -846,6 +854,7 @@ void glGetVertexAttribPointerv(GLuint index, GLenum pname, void **pointer);
 void glHint(GLenum target, GLenum mode);
 void glInterleavedArrays(GLenum format, GLsizei stride, const void *pointer);
 GLboolean glIsEnabled(GLenum cap);
+GLboolean glIsEnabledi(GLenum target, GLuint index);
 GLboolean glIsFramebuffer(GLuint fb);
 GLboolean glIsProgram(GLuint program);
 GLboolean glIsRenderbuffer(GLuint rb);

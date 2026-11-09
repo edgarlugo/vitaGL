@@ -269,6 +269,7 @@ static SceGxmAttributeFormat orig_fmt[VERTEX_ATTRIBS_NUM];
 static unsigned char orig_size[VERTEX_ATTRIBS_NUM];
 static vbo *ubo_buf[UBOS_NUM];
 static uint32_t ubo_offset[UBOS_NUM];
+static uint32_t ubo_size[UBOS_NUM];
 static uint8_t tex2d_override = 0;
 GLboolean dirty_shader_frag_unifs = GL_TRUE;
 GLboolean dirty_shader_vert_unifs = GL_TRUE;
@@ -3607,6 +3608,7 @@ void glBindBufferRange(GLenum target, GLuint index, GLuint buffer, GLintptr offs
 
 	ubo_buf[index] = (vbo *)buffer;
 	ubo_offset[index] = offset;
+	ubo_size[index] = size;
 }
 
 void glBindBufferBase(GLenum target, GLuint index, GLuint buffer) {
@@ -3622,6 +3624,28 @@ void glBindBufferBase(GLenum target, GLuint index, GLuint buffer) {
 
 	ubo_buf[index] = (vbo *)buffer;
 	ubo_offset[index] = 0;
+	ubo_size[index] = 0;
+}
+
+void glGetIntegeri_v(GLenum target, GLuint index, GLint *data) {
+#ifndef SKIP_ERROR_HANDLING
+	if (index >= UBOS_NUM) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, index)
+	}
+#endif
+	switch (target) {
+	case GL_UNIFORM_BUFFER_BINDING:
+		*data = (GLint)ubo_buf[index];
+		break;
+	case GL_UNIFORM_BUFFER_START:
+		*data = ubo_offset[index];
+		break;
+	case GL_UNIFORM_BUFFER_SIZE:
+		*data = ubo_size[index];
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
 }
 
 void glBindAttribLocation(GLuint prog, GLuint index, const GLchar *name) {
