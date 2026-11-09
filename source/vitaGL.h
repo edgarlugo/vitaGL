@@ -557,6 +557,7 @@ extern "C" {
 #define GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX         0x9047
 #define GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX   0x9048
 #define GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX 0x9049
+#define GL_MAX_SERVER_WAIT_TIMEOUT                      0x9111
 #define GL_OBJECT_TYPE                                  0x9112
 #define GL_SYNC_CONDITION                               0x9113
 #define GL_SYNC_STATUS                                  0x9114
@@ -849,11 +850,13 @@ void glGetAttachedShaders(GLuint prog, GLsizei maxCount, GLsizei *count, GLuint 
 GLint glGetAttribLocation(GLuint prog, const GLchar *name);
 void glGetBooleani_v(GLenum target, GLuint index, GLboolean *data);
 void glGetBooleanv(GLenum pname, GLboolean *params);
+void glGetBufferParameteri64v(GLenum target, GLenum pname, GLint64 *params);
 void glGetBufferParameteriv(GLenum target, GLenum pname, GLint *params);
 void glGetDoublev(GLenum pname, GLdouble *data);
 GLenum glGetError(void);
 void glGetFloatv(GLenum pname, GLfloat *data);
 void glGetFramebufferAttachmentParameteriv(GLenum target, GLenum attachment, GLenum pname, GLint *params);
+void glGetInteger64v(GLenum pname, GLint64 *data);
 void glGetIntegeri_v(GLenum target, GLuint index, GLint *data);
 void glGetIntegerv(GLenum pname, GLint *data);
 void glGetNamedBufferParameteriv(GLuint buffer, GLenum pname, GLint *params);

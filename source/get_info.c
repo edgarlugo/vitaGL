@@ -750,6 +750,34 @@ void glGetIntegerv(GLenum pname, GLint *data) {
 	}
 }
 
+void glGetInteger64v(GLenum pname, GLint64 *data) {
+	GLint vals[COMPRESSED_TEXTURE_FORMATS_NUM] = {0};
+	GLint num = 1;
+	switch (pname) {
+	case GL_MAX_SERVER_WAIT_TIMEOUT:
+		*data = 0;
+		return;
+	case GL_COLOR_WRITEMASK:
+	case GL_SCISSOR_BOX:
+	case GL_VIEWPORT:
+		num = 4;
+		break;
+	case GL_POLYGON_MODE:
+	case GL_MAX_VIEWPORT_DIMS:
+		num = 2;
+		break;
+	case GL_COMPRESSED_TEXTURE_FORMATS:
+		num = COMPRESSED_TEXTURE_FORMATS_NUM;
+		break;
+	default:
+		break;
+	}
+	glGetIntegerv(pname, vals);
+	for (int i = 0; i < num; i++) {
+		data[i] = vals[i];
+	}
+}
+
 GLboolean glIsEnabled(GLenum cap) {
 	GLboolean ret = GL_FALSE;
 	switch (cap) {

@@ -949,6 +949,12 @@ void glGetBufferParameteriv(GLenum target, GLenum pname, GLint *params) {
 	glGetNamedBufferParameteriv((GLuint)gpu_buf, pname, params);
 }
 
+void glGetBufferParameteri64v(GLenum target, GLenum pname, GLint64 *params) {
+	GLint val;
+	glGetBufferParameteriv(target, pname, &val);
+	*params = val;
+}
+
 // VGL_EXT_gpu_objects_array extension implementation
 
 void vglVertexPointer(GLint size, GLenum type, GLsizei stride, GLuint count, const GLvoid *pointer) {
