@@ -555,6 +555,18 @@ extern "C" {
 #define GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX         0x9047
 #define GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX   0x9048
 #define GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX 0x9049
+#define GL_OBJECT_TYPE                                  0x9112
+#define GL_SYNC_CONDITION                               0x9113
+#define GL_SYNC_STATUS                                  0x9114
+#define GL_SYNC_FLAGS                                   0x9115
+#define GL_SYNC_FENCE                                   0x9116
+#define GL_SYNC_GPU_COMMANDS_COMPLETE                   0x9117
+#define GL_UNSIGNALED                                   0x9118
+#define GL_SIGNALED                                     0x9119
+#define GL_ALREADY_SIGNALED                             0x911A
+#define GL_TIMEOUT_EXPIRED                              0x911B
+#define GL_CONDITION_SATISFIED                          0x911C
+#define GL_WAIT_FAILED                                  0x911D
 #define GL_COMPRESSED_RGBA_PVRTC_2BPPV2_IMG             0x9137
 #define GL_COMPRESSED_RGBA_PVRTC_4BPPV2_IMG             0x9138
 #define GL_QUERY_RESULT_NO_WAIT                         0x9194
@@ -669,6 +681,10 @@ extern "C" {
 #define GL_SCISSOR_BIT        0x00080000
 #define GL_ALL_ATTRIB_BITS    0xFFFFFFFF
 
+#define GL_SYNC_FLUSH_COMMANDS_BIT        0x0001
+
+#define GL_TIMEOUT_IGNORED                0xFFFFFFFFFFFFFFFFull
+
 #define GL_MAP_READ_BIT                   0x0001
 #define GL_MAP_WRITE_BIT                  0x0002
 #define GL_MAP_INVALIDATE_RANGE_BIT       0x0004
@@ -722,6 +738,7 @@ void glClearDepthf(GLclampf depth);
 void glClearDepthx(GLclampx depth);
 void glClearStencil(GLint s);
 void glClientActiveTexture(GLenum texture);
+GLenum glClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout);
 void glClipPlane(GLenum plane, const GLdouble *equation);
 void glClipPlanef(GLenum plane, const GLfloat *equation);
 void glClipPlanex(GLenum plane, const GLfixed *equation);
@@ -768,6 +785,7 @@ void glDeleteQueries(GLsizei n, const GLuint *ids);
 void glDeleteRenderbuffers(GLsizei n, const GLuint *renderbuffers);
 void glDeleteSamplers(GLsizei n, const GLuint *smp);
 void glDeleteShader(GLuint shad);
+void glDeleteSync(GLsync sync);
 void glDeleteTextures(GLsizei n, const GLuint *textures);
 void glDeleteVertexArrays(GLsizei n, const GLuint *gl_arrays);
 void glDepthFunc(GLenum func);
@@ -793,6 +811,7 @@ void glEnableVertexAttribArray(GLuint index);
 void glEnd(void);
 void glEndList(void);
 void glEndQuery(GLenum target);
+GLsync glFenceSync(GLenum condition, GLbitfield flags);
 void glFinish(void);
 void glFlush(void);
 void glFlushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length);
@@ -845,6 +864,7 @@ void glGetShaderiv(GLuint handle, GLenum pname, GLint *params);
 void glGetShaderSource(GLuint handle, GLsizei bufSize, GLsizei *length, GLchar *source);
 const GLubyte *glGetString(GLenum name);
 const GLubyte *glGetStringi(GLenum name, GLuint index);
+void glGetSynciv(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei *length, GLint *values);
 void glGetTexEnviv(GLenum target, GLenum pname, GLint *params);
 GLuint glGetUniformBlockIndex(GLuint prog, const GLchar *uniformBlockName);
 GLint glGetUniformLocation(GLuint prog, const GLchar *name);
@@ -858,6 +878,7 @@ GLboolean glIsEnabledi(GLenum target, GLuint index);
 GLboolean glIsFramebuffer(GLuint fb);
 GLboolean glIsProgram(GLuint program);
 GLboolean glIsRenderbuffer(GLuint rb);
+GLboolean glIsSync(GLsync sync);
 GLboolean glIsTexture(GLuint texture);
 void glLightfv(GLenum light, GLenum pname, const GLfloat *params);
 void glLightModelfv(GLenum pname, const GLfloat *params);
@@ -1053,6 +1074,7 @@ void glVertexAttribDivisor(GLuint index, GLuint divisor);
 void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void *pointer);
 void glVertexPointer(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
 void glViewport(GLint x, GLint y, GLsizei width, GLsizei height);
+void glWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout);
 
 // glu*
 void gluBuild2DMipmaps(GLenum target, GLint internalFormat, GLsizei width, GLsizei height, GLenum format, GLenum type, const void *data);

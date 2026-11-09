@@ -246,6 +246,131 @@ void glGetQueryObjectuiv(GLuint id, GLenum pname, GLuint *params) {
 	}
 }
 
+// Fence sync objects are signaled when the scene they were inserted into ends, through the occlusion queries fence
+typedef struct {
+	uint32_t magic;
+	uint32_t value;
+} fence_sync;
+#define FENCE_SYNC_MAGIC 0x434E5953
+
+GLsync glFenceSync(GLenum condition, GLbitfield flags) {
+	THREAD_SAFE()
+
+#ifndef SKIP_ERROR_HANDLING
+	if (condition != GL_SYNC_GPU_COMMANDS_COMPLETE) {
+		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_ENUM, 0, condition)
+	} else if (flags != 0) {
+		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_VALUE, 0, flags)
+	}
+#endif
+	fence_sync *s = (fence_sync *)vglMalloc(sizeof(fence_sync));
+	s->magic = FENCE_SYNC_MAGIC;
+	s->value = query_fence.value + 1;
+	return (GLsync)s;
+}
+
+void glDeleteSync(GLsync sync) {
+	THREAD_SAFE()
+
+	fence_sync *s = (fence_sync *)sync;
+	if (!s)
+		return;
+#ifndef SKIP_ERROR_HANDLING
+	if (s->magic != FENCE_SYNC_MAGIC) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+	s->magic = 0;
+	vgl_free(s);
+}
+
+GLboolean glIsSync(GLsync sync) {
+	fence_sync *s = (fence_sync *)sync;
+	return (s && s->magic == FENCE_SYNC_MAGIC) ? GL_TRUE : GL_FALSE;
+}
+
+GLenum glClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
+	THREAD_SAFE()
+
+	fence_sync *s = (fence_sync *)sync;
+#ifndef SKIP_ERROR_HANDLING
+	if (!s || s->magic != FENCE_SYNC_MAGIC) {
+		SET_GL_ERROR_WITH_RET(GL_INVALID_VALUE, GL_WAIT_FAILED)
+	} else if (flags & ~GL_SYNC_FLUSH_COMMANDS_BIT) {
+		SET_GL_ERROR_WITH_RET_AND_VALUE(GL_INVALID_VALUE, GL_WAIT_FAILED, flags)
+	}
+#endif
+	if (s->value <= *query_fence.address)
+		return GL_ALREADY_SIGNALED;
+
+	// Ending the scene the fence was inserted into, if it is still the current one
+	if (s->value > query_fence.value && ((flags & GL_SYNC_FLUSH_COMMANDS_BIT) || timeout)) {
+		dirty_query = GL_TRUE;
+		scene_reset();
+	}
+	if (!timeout)
+		return GL_TIMEOUT_EXPIRED;
+
+	if (timeout == GL_TIMEOUT_IGNORED) {
+		sceGxmNotificationWait(&query_fence);
+	} else {
+		SceUInt64 end = sceKernelGetProcessTimeWide() + timeout / 1000;
+		while (s->value > *query_fence.address) {
+			if (sceKernelGetProcessTimeWide() >= end)
+				return GL_TIMEOUT_EXPIRED;
+			sceKernelDelayThread(100);
+		}
+	}
+	return GL_CONDITION_SATISFIED;
+}
+
+void glWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
+	THREAD_SAFE()
+
+	// Commands are executed in order by the GPU, so there's nothing to wait for
+#ifndef SKIP_ERROR_HANDLING
+	fence_sync *s = (fence_sync *)sync;
+	if (!s || s->magic != FENCE_SYNC_MAGIC) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	} else if (flags != 0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, flags)
+	} else if (timeout != GL_TIMEOUT_IGNORED) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+}
+
+void glGetSynciv(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei *length, GLint *values) {
+	THREAD_SAFE()
+
+	fence_sync *s = (fence_sync *)sync;
+#ifndef SKIP_ERROR_HANDLING
+	if (!s || s->magic != FENCE_SYNC_MAGIC) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+	if (length)
+		*length = bufSize > 0 ? 1 : 0;
+	if (bufSize < 1)
+		return;
+	switch (pname) {
+	case GL_OBJECT_TYPE:
+		*values = GL_SYNC_FENCE;
+		break;
+	case GL_SYNC_CONDITION:
+		*values = GL_SYNC_GPU_COMMANDS_COMPLETE;
+		break;
+	case GL_SYNC_STATUS:
+		*values = (s->value <= *query_fence.address) ? GL_SIGNALED : GL_UNSIGNALED;
+		break;
+	case GL_SYNC_FLAGS:
+		*values = 0;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, pname)
+	}
+}
+
 void glGenVertexArrays(GLsizei n, GLuint *res) {
 	THREAD_SAFE()
 
