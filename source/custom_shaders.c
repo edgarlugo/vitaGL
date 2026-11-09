@@ -3359,6 +3359,25 @@ void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm
 #endif
 }
 
+void glVertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei stride, const void *pointer) {
+	THREAD_SAFE()
+
+	switch (type) {
+	case GL_BYTE:
+	case GL_UNSIGNED_BYTE:
+	case GL_SHORT:
+	case GL_UNSIGNED_SHORT:
+		glVertexAttribPointer(index, size, type, GL_FALSE, stride, pointer);
+		break;
+	case GL_INT:
+	case GL_UNSIGNED_INT:
+		// sceGxm has no 32 bit integer attribute format, and untyped attributes are rejected for integer inputs
+		vgl_log("%s:%d %s: 32 bit integer attributes are not supported.\n", __FILE__, __LINE__, __func__);
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, type)
+	}
+}
+
 void glVertexAttribDivisor(GLuint index, GLuint divisor) {
 	THREAD_SAFE()
 
@@ -3591,6 +3610,22 @@ void glVertexAttrib4fv(GLuint index, const GLfloat *v) {
 	cur_vao->vertex_attrib_value[index][1] = v[1];
 	cur_vao->vertex_attrib_value[index][2] = v[2];
 	cur_vao->vertex_attrib_value[index][3] = v[3];
+}
+
+void glVertexAttribI4i(GLuint index, GLint v0, GLint v1, GLint v2, GLint v3) {
+	glVertexAttrib4f(index, v0, v1, v2, v3);
+}
+
+void glVertexAttribI4ui(GLuint index, GLuint v0, GLuint v1, GLuint v2, GLuint v3) {
+	glVertexAttrib4f(index, v0, v1, v2, v3);
+}
+
+void glVertexAttribI4iv(GLuint index, const GLint *v) {
+	glVertexAttrib4f(index, v[0], v[1], v[2], v[3]);
+}
+
+void glVertexAttribI4uiv(GLuint index, const GLuint *v) {
+	glVertexAttrib4f(index, v[0], v[1], v[2], v[3]);
 }
 
 void glBindBufferRange(GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) {
