@@ -608,6 +608,7 @@ typedef struct {
 	int stride;
 	void *data;
 	texture *tex;
+	uint8_t face; // Attached face for cube map textures
 #ifdef HAVE_ACCURATE_MSAA
 	SceGxmMultisampleMode msaa_mode;
 #endif
@@ -1362,6 +1363,17 @@ static inline __attribute__((always_inline)) uint32_t get_color_from_texture(Sce
 	}
 }
 
+// Returns the data of the texture attached to a framebuffer, or of its attached face for cube maps
+static inline __attribute__((always_inline)) void *framebuffer_texture_data(framebuffer *fb, texture *tex) {
+	uint8_t *data = (uint8_t *)vglGetTexData(&tex->gxm_tex);
+	if (fb->face && sceGxmTextureGetType(&tex->gxm_tex) == SCE_GXM_TEXTURE_CUBE) {
+		uint32_t w, h;
+		vglGetTexSizes(&tex->gxm_tex, &w, &h);
+		data += VGL_ALIGN(w, 8) * h * tex_format_to_bytespp(vglGetTexFormat(&tex->gxm_tex)) * fb->face;
+	}
+	return data;
+}
+
 static inline __attribute__((always_inline)) void _glFramebufferTexture2D(framebuffer *fb, GLenum attachment, texture *tex, GLuint tex_id) {
 	// Extracting texture data
 	int old_w = fb->width, old_h = fb->height;
@@ -1372,7 +1384,7 @@ static inline __attribute__((always_inline)) void _glFramebufferTexture2D(frameb
 	case GL_COLOR_ATTACHMENT0:
 		vglGetTexSizes(&tex->gxm_tex, &fb->width, &fb->height);
 		fb->stride = VGL_ALIGN(fb->width, 8) * tex_format_to_bytespp(fmt);
-		fb->data = vglGetTexData(&tex->gxm_tex);
+		fb->data = framebuffer_texture_data(fb, tex);
 		fb->format = tex->format;
 
 		// Clearing previously attached texture
@@ -1413,7 +1425,9 @@ static inline __attribute__((always_inline)) void _glFramebufferTexture2D(frameb
 		fb->is_float = tex->format == SCE_GXM_TEXTURE_FORMAT_F16F16F16F16_RGBA;
 
 		// Allocating colorbuffer
-		sceGxmColorSurfaceInit(&fb->colorbuffer, get_color_from_texture(fmt), SCE_GXM_COLOR_SURFACE_LINEAR,
+		// Cube map faces are stored swizzled one after the other
+		sceGxmColorSurfaceInit(&fb->colorbuffer, get_color_from_texture(fmt),
+			sceGxmTextureGetType(&tex->gxm_tex) == SCE_GXM_TEXTURE_CUBE ? SCE_GXM_COLOR_SURFACE_SWIZZLED : SCE_GXM_COLOR_SURFACE_LINEAR,
 			VGL_FRAMEBUFFER_MSAA(fb) == SCE_GXM_MULTISAMPLE_NONE ? SCE_GXM_COLOR_SURFACE_SCALE_NONE : SCE_GXM_COLOR_SURFACE_SCALE_MSAA_DOWNSCALE,
 			fb->is_float ? SCE_GXM_OUTPUT_REGISTER_SIZE_64BIT : SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT,
 			fb->width, fb->height, VGL_ALIGN(fb->width, 8), fb->data);

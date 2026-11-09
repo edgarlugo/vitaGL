@@ -256,6 +256,7 @@ inline __attribute__((always_inline)) void glGenFramebuffers(GLsizei n, GLuint *
 			framebuffers[i].depthbuffer_ptr = NULL;
 			framebuffers[i].target = NULL;
 			framebuffers[i].tex = NULL;
+			framebuffers[i].face = 0;
 		}
 		if (j >= n)
 			break;
@@ -320,6 +321,7 @@ static void attach_renderbuffer(framebuffer *fb, GLenum attachment, renderbuffer
 #ifdef HAVE_ACCURATE_MSAA
 		update_framebuffer_msaa(fb, gl_samples_to_gxm(rb ? rb->samples : 0));
 #endif
+		fb->face = 0;
 		_glFramebufferTexture2D(fb, attachment, &texture_slots[rb ? rb->tex_id : 0], rb ? rb->tex_id : 0);
 		break;
 	case GL_DEPTH_STENCIL_ATTACHMENT:
@@ -586,7 +588,7 @@ inline void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum text
 #ifndef SKIP_ERROR_HANDLING
 	if (!fb) {
 		SET_GL_ERROR(GL_INVALID_OPERATION)
-	} else if (textarget != GL_TEXTURE_2D) {
+	} else if (textarget != GL_TEXTURE_2D && (textarget < GL_TEXTURE_CUBE_MAP_POSITIVE_X || textarget > GL_TEXTURE_CUBE_MAP_NEGATIVE_Z)) {
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, textarget)
 	} else if (tex_id >= TEXTURES_NUM) {
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, tex_id)
@@ -598,6 +600,7 @@ inline void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum text
 #ifdef HAVE_ACCURATE_MSAA
 	update_framebuffer_msaa(fb, SCE_GXM_MULTISAMPLE_NONE);
 #endif
+	fb->face = textarget == GL_TEXTURE_2D ? 0 : textarget - GL_TEXTURE_CUBE_MAP_POSITIVE_X;
 	_glFramebufferTexture2D(fb, attachment, &texture_slots[tex_id], tex_id);
 }
 
@@ -636,6 +639,7 @@ void glFramebufferTexture2DMultisample(GLenum target, GLenum attachment, GLenum 
 #endif
 
 	update_framebuffer_msaa(fb, gl_samples_to_gxm(samples));
+	fb->face = 0;
 	_glFramebufferTexture2D(fb, attachment, &texture_slots[tex_id], tex_id);
 #else
 	vgl_log("%s:%d %s: This function requires HAVE_ACCURATE_MSAA=1 flag.\n", __FILE__, __LINE__, __func__);
@@ -662,6 +666,7 @@ inline void glNamedFramebufferTexture2D(GLuint target, GLenum attachment, GLenum
 #ifdef HAVE_ACCURATE_MSAA
 	update_framebuffer_msaa(fb, SCE_GXM_MULTISAMPLE_NONE);
 #endif
+	fb->face = 0;
 	_glFramebufferTexture2D(fb, attachment, &texture_slots[tex_id], tex_id);
 }
 
