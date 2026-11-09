@@ -1928,6 +1928,59 @@ void glTexImage2D(GLenum target, GLint level, GLint internalFormat, GLsizei widt
 	}
 }
 
+void glTexStorage2D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height) {
+	THREAD_SAFE()
+
+#ifndef SKIP_ERROR_HANDLING
+	if (levels < 1 || width < 1 || height < 1) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+
+	// Picking a client format compatible with the requested internal format since no data is uploaded
+	GLenum format, type = GL_UNSIGNED_BYTE;
+	switch (internalformat) {
+	case GL_R8:
+		format = GL_RED;
+		break;
+	case GL_RG8:
+		format = GL_RG;
+		break;
+	case GL_RGB8:
+	case GL_SRGB8:
+	case GL_RGB565:
+		format = GL_RGB;
+		break;
+	case GL_RGBA16F:
+		format = GL_RGBA;
+		type = GL_HALF_FLOAT;
+		break;
+	case GL_RGBA8:
+	case GL_SRGB8_ALPHA8:
+	case GL_RGBA4:
+	case GL_RGB5_A1:
+		format = GL_RGBA;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, internalformat)
+	}
+
+	switch (target) {
+	case GL_TEXTURE_2D:
+		glTexImage2D(target, 0, internalformat, width, height, 0, format, type, NULL);
+		if (levels > 1) // Allocates the whole mipchain up to the last level
+			glTexImage2D(target, levels - 1, internalformat, MAX(width >> (levels - 1), 1), MAX(height >> (levels - 1), 1), 0, format, type, NULL);
+		break;
+	case GL_TEXTURE_CUBE_MAP:
+		for (int i = 0; i < 6; i++) {
+			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, internalformat, width, height, 0, format, type, NULL);
+		}
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
+}
+
 void glTextureImage2D(GLuint tex_id, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *data) {
 	THREAD_SAFE()
 

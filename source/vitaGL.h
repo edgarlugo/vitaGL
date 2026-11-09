@@ -539,6 +539,7 @@ extern "C" {
 #define GL_RENDERBUFFER                                 0x8D41
 #define GL_STENCIL_INDEX8                               0x8D48
 #define GL_HALF_FLOAT_OES                               0x8D61
+#define GL_RGB565                                       0x8D62
 #define GL_ETC1_RGB8_OES                                0x8D64
 #define GL_ANY_SAMPLES_PASSED_CONSERVATIVE              0x8D6A
 #define GL_DEPTH_COMPONENT32F                           0x8DAB
@@ -1023,6 +1024,7 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param);
 void glTexParameteri(GLenum target, GLenum pname, GLint param);
 void glTexParameteriv(GLenum target, GLenum pname, GLint *param);
 void glTexParameterx(GLenum target, GLenum pname, GLfixed param);
+void glTexStorage2D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);
 void glTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type, const GLvoid *pixels);
 void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels);
 void glTextureImage1D(GLuint texture, GLint level, GLint internalFormat, GLsizei width, GLint border, GLenum format, GLenum type, const GLvoid *data);
