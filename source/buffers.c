@@ -432,6 +432,7 @@ inline __attribute__((always_inline)) void glGenBuffers(GLsizei n, GLuint *res) 
 			vgl_log("%s:%d glGenBuffers failed to alloc a buffer (%d/%lu).\n", __FILE__, __LINE__, i, n);
 #endif
 		gpu_buf->ptr = NULL;
+		gpu_buf->size = 0;
 		gpu_buf->last_frame = OBJ_NOT_USED;
 		res[i] = (GLuint)gpu_buf;
 	}
