@@ -552,6 +552,8 @@ extern "C" {
 #define GL_MAX_VERTEX_UNIFORM_VECTORS                   0x8DFB
 #define GL_MAX_VARYING_VECTORS                          0x8DFC
 #define GL_MAX_FRAGMENT_UNIFORM_VECTORS                 0x8DFD
+#define GL_COPY_READ_BUFFER                             0x8F36
+#define GL_COPY_WRITE_BUFFER                            0x8F37
 #define GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX         0x9047
 #define GL_GPU_MEMORY_INFO_TOTAL_AVAILABLE_MEMORY_NVX   0x9048
 #define GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX 0x9049
@@ -763,6 +765,8 @@ void glColorTable(GLenum target, GLenum internalformat, GLsizei width, GLenum fo
 void glCompileShader(GLuint shader);
 void glCompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void *data);
 void glCompressedTextureImage2D(GLuint texture, GLint level, GLenum internalFormat, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void *data);
+void glCopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);
+void glCopyNamedBufferSubData(GLuint readBuffer, GLuint writeBuffer, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);
 void glCopyTexImage1D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLint border);
 void glCopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border);
 void glCopyTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLint x, GLint y, GLsizei width);

@@ -561,6 +561,12 @@ void glGetIntegerv(GLenum pname, GLint *data) {
 	case GL_ELEMENT_ARRAY_BUFFER_BINDING:
 		*data = cur_vao->index_array_unit;
 		break;
+	case GL_COPY_READ_BUFFER:
+		*data = copy_read_unit;
+		break;
+	case GL_COPY_WRITE_BUFFER:
+		*data = copy_write_unit;
+		break;
 	case GL_MAX_ELEMENTS_INDICES:
 	case GL_MAX_ELEMENTS_VERTICES:
 		*data = 0x7FFFFFFF;

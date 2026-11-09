@@ -1199,6 +1199,8 @@ extern uint32_t vsync_interval; // Current setting for VSync
 
 extern uint32_t vertex_array_unit; // Current in-use vertex array buffer unit
 extern uint32_t uniform_array_unit; // Current in-use uniform buffer unit
+extern uint32_t copy_read_unit; // Current in-use copy read buffer unit
+extern uint32_t copy_write_unit; // Current in-use copy write buffer unit
 
 extern GLenum orig_depth_test; // Original depth test state (used for depth test invalidation)
 extern framebuffer *in_use_framebuffer; // Currently in use framebuffer
