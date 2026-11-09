@@ -673,6 +673,27 @@ void glNamedFramebufferTexture(GLuint target, GLenum attachment, GLuint tex_id, 
 	glNamedFramebufferTexture2D(target, attachment, GL_TEXTURE_2D, tex_id, level);
 }
 
+void glInvalidateFramebuffer(GLenum target, GLsizei numAttachments, const GLenum *attachments) {
+	// Contents are always stored at the end of a scene, so invalidation is only validated
+#ifndef SKIP_ERROR_HANDLING
+	switch (target) {
+	case GL_FRAMEBUFFER:
+	case GL_DRAW_FRAMEBUFFER:
+	case GL_READ_FRAMEBUFFER:
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
+	if (numAttachments < 0) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+}
+
+void glInvalidateSubFramebuffer(GLenum target, GLsizei numAttachments, const GLenum *attachments, GLint x, GLint y, GLsizei width, GLsizei height) {
+	glInvalidateFramebuffer(target, numAttachments, attachments);
+}
+
 GLenum glCheckFramebufferStatus(GLenum target) {
 	// Detecting requested framebuffer
 	framebuffer *fb = NULL;

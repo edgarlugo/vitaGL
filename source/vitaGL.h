@@ -905,6 +905,8 @@ void glGetVertexAttribiv(GLuint index, GLenum pname, GLint *params);
 void glGetVertexAttribPointerv(GLuint index, GLenum pname, void **pointer);
 void glHint(GLenum target, GLenum mode);
 void glInterleavedArrays(GLenum format, GLsizei stride, const void *pointer);
+void glInvalidateFramebuffer(GLenum target, GLsizei numAttachments, const GLenum *attachments);
+void glInvalidateSubFramebuffer(GLenum target, GLsizei numAttachments, const GLenum *attachments, GLint x, GLint y, GLsizei width, GLsizei height);
 GLboolean glIsEnabled(GLenum cap);
 GLboolean glIsEnabledi(GLenum target, GLuint index);
 GLboolean glIsFramebuffer(GLuint fb);
