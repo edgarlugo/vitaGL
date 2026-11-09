@@ -758,6 +758,90 @@ void glClearColorx(GLclampx red, GLclampx green, GLclampx blue, GLclampx alpha) 
 	clear_rgba_val.a = (float)alpha / 65536.0f;
 }
 
+static void clear_color_buffer(GLint drawbuffer, float r, float g, float b, float a) {
+#ifndef SKIP_ERROR_HANDLING
+	if (drawbuffer != 0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, drawbuffer)
+	}
+#endif
+	vector4f old_rgba = clear_rgba_val;
+	clear_rgba_val.r = r;
+	clear_rgba_val.g = g;
+	clear_rgba_val.b = b;
+	clear_rgba_val.a = a;
+	glClear(GL_COLOR_BUFFER_BIT);
+	clear_rgba_val = old_rgba;
+}
+
+static void clear_depth_stencil_buffer(GLbitfield mask, GLint drawbuffer, GLfloat depth, GLint stencil) {
+#ifndef SKIP_ERROR_HANDLING
+	if (drawbuffer != 0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, drawbuffer)
+	}
+#endif
+	GLdouble old_depth = depth_value;
+	GLint old_stencil = stencil_value;
+	depth_value = depth;
+	stencil_value = stencil;
+	glClear(mask);
+	depth_value = old_depth;
+	stencil_value = old_stencil;
+}
+
+void glClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat *value) {
+	THREAD_SAFE()
+
+	switch (buffer) {
+	case GL_COLOR:
+		clear_color_buffer(drawbuffer, value[0], value[1], value[2], value[3]);
+		break;
+	case GL_DEPTH:
+		clear_depth_stencil_buffer(GL_DEPTH_BUFFER_BIT, drawbuffer, value[0], stencil_value);
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, buffer)
+	}
+}
+
+void glClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint *value) {
+	THREAD_SAFE()
+
+	switch (buffer) {
+	case GL_COLOR:
+		clear_color_buffer(drawbuffer, value[0], value[1], value[2], value[3]);
+		break;
+	case GL_STENCIL:
+		clear_depth_stencil_buffer(GL_STENCIL_BUFFER_BIT, drawbuffer, depth_value, value[0]);
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, buffer)
+	}
+}
+
+void glClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint *value) {
+	THREAD_SAFE()
+
+	switch (buffer) {
+	case GL_COLOR:
+		clear_color_buffer(drawbuffer, value[0], value[1], value[2], value[3]);
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, buffer)
+	}
+}
+
+void glClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
+	THREAD_SAFE()
+
+	switch (buffer) {
+	case GL_DEPTH_STENCIL:
+		clear_depth_stencil_buffer(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, drawbuffer, depth, stencil);
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, buffer)
+	}
+}
+
 void glLineWidth(GLfloat width) {
 	THREAD_SAFE()
 

@@ -212,6 +212,9 @@ extern "C" {
 #define GL_MODELVIEW                                    0x1700
 #define GL_PROJECTION                                   0x1701
 #define GL_TEXTURE                                      0x1702
+#define GL_COLOR                                        0x1800
+#define GL_DEPTH                                        0x1801
+#define GL_STENCIL                                      0x1802
 #define GL_COLOR_INDEX                                  0x1900
 #define GL_DEPTH_COMPONENT                              0x1902
 #define GL_RED                                          0x1903
@@ -369,6 +372,7 @@ extern "C" {
 #define GL_SUBTRACT                                     0x84E7
 #define GL_MAX_RENDERBUFFER_SIZE                        0x84E8
 #define GL_TEXTURE_COMPRESSION_HINT                     0x84EF
+#define GL_DEPTH_STENCIL                                0x84F9
 #define GL_TEXTURE_MAX_ANISOTROPY_EXT                   0x84FE
 #define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT               0x84FF
 #define GL_TEXTURE_LOD_BIAS                             0x8501
@@ -704,6 +708,10 @@ void glCallLists(GLsizei n, GLenum type, const void *lists);
 GLenum glCheckFramebufferStatus(GLenum target);
 GLenum glCheckNamedFramebufferStatus(GLuint target, GLenum dummy);
 void glClear(GLbitfield mask);
+void glClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil);
+void glClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat *value);
+void glClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint *value);
+void glClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint *value);
 void glClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
 void glClearColorx(GLclampx red, GLclampx green, GLclampx blue, GLclampx alpha);
 void glClearDepth(GLdouble depth);
