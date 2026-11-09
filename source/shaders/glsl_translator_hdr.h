@@ -146,6 +146,10 @@ inline float4 vgl_atan(float4 x) { return atan(x); }
 #define ivec2 int2
 #define ivec3 int3
 #define ivec4 int4
+#define uint int
+#define uvec2 int2
+#define uvec3 int3
+#define uvec4 int4
 #define bvec2 bool2
 #define bvec3 bool3
 #define bvec4 bool4

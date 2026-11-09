@@ -1290,6 +1290,30 @@ LOOP_START:
 	return GL_TRUE;
 }
 
+static GLboolean glsl_is_identifier_char(char c) {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+static void glsl_strip_unsigned_suffixes(char *src) {
+	char *p = src;
+	while (*p) {
+		if (*p >= '0' && *p <= '9' && (p == src || (!glsl_is_identifier_char(p[-1]) && p[-1] != '.'))) {
+			if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+				p += 2;
+				while ((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F'))
+					p++;
+			} else {
+				while (*p >= '0' && *p <= '9')
+					p++;
+			}
+			if ((*p == 'u' || *p == 'U') && !glsl_is_identifier_char(p[1]))
+				*p = ' ';
+		} else {
+			p++;
+		}
+	}
+}
+
 void glsl_translator_process(shader *s) {
 #ifdef HAVE_FIXED_ATTRIBUTES
 	glsl_attributes_num = 0;
@@ -1318,6 +1342,10 @@ void glsl_translator_process(shader *s) {
 	char *input = vglMalloc(source_size);
 	vgl_fast_memcpy(input, s->source, source_size - 1);
 	input[source_size - 1] = 0;
+
+	// Unsigned integers are handled as signed ones, so we drop the suffix of unsigned literals
+	if (strstr(input, "uint") || strstr(input, "uvec"))
+		glsl_strip_unsigned_suffixes(input);
 	
 	// Nukeing version directive
 	char *str = strstr(input, "#version");

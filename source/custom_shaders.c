@@ -3193,6 +3193,39 @@ void glProgramUniform4iv(GLuint prog, GLint location, GLsizei count, const GLint
 	glUniform4iv(location, count, value);
 }
 
+// Unsigned integers are handled as signed ones by shaders
+void glUniform1ui(GLint location, GLuint v0) {
+	glUniform1i(location, v0);
+}
+
+void glUniform2ui(GLint location, GLuint v0, GLuint v1) {
+	glUniform2i(location, v0, v1);
+}
+
+void glUniform3ui(GLint location, GLuint v0, GLuint v1, GLuint v2) {
+	glUniform3i(location, v0, v1, v2);
+}
+
+void glUniform4ui(GLint location, GLuint v0, GLuint v1, GLuint v2, GLuint v3) {
+	glUniform4i(location, v0, v1, v2, v3);
+}
+
+void glUniform1uiv(GLint location, GLsizei count, const GLuint *value) {
+	glUniform1iv(location, count, (const GLint *)value);
+}
+
+void glUniform2uiv(GLint location, GLsizei count, const GLuint *value) {
+	glUniform2iv(location, count, (const GLint *)value);
+}
+
+void glUniform3uiv(GLint location, GLsizei count, const GLuint *value) {
+	glUniform3iv(location, count, (const GLint *)value);
+}
+
+void glUniform4uiv(GLint location, GLsizei count, const GLuint *value) {
+	glUniform4iv(location, count, (const GLint *)value);
+}
+
 inline void glUniform4f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3) {
 	THREAD_SAFE()
 
