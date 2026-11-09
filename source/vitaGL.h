@@ -554,6 +554,12 @@ extern "C" {
 #define GL_FRAMEBUFFER_SRGB                             0x8DB9
 #define GL_COMPRESSED_RED_RGTC1                         0x8DBB
 #define GL_COMPRESSED_RG_RGTC2                          0x8DBD
+#define GL_LOW_FLOAT                                    0x8DF0
+#define GL_MEDIUM_FLOAT                                 0x8DF1
+#define GL_HIGH_FLOAT                                   0x8DF2
+#define GL_LOW_INT                                      0x8DF3
+#define GL_MEDIUM_INT                                   0x8DF4
+#define GL_HIGH_INT                                     0x8DF5
 #define GL_SHADER_BINARY_FORMATS                        0x8DF8
 #define GL_NUM_SHADER_BINARY_FORMATS                    0x8DF9
 #define GL_SHADER_COMPILER                              0x8DFA
@@ -719,6 +725,7 @@ void glBeginQuery(GLenum target, GLuint id);
 void glBindAttribLocation(GLuint program, GLuint index, const GLchar *name);
 void glBindBuffer(GLenum target, GLuint buffer);
 void glBindBufferBase(GLenum target, GLuint index, GLuint buffer);
+void glBindFragDataLocation(GLuint program, GLuint colorNumber, const GLchar *name);
 void glBindBufferRange(GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size);
 void glBindFramebuffer(GLenum target, GLuint framebuffer);
 void glBindRenderbuffer(GLenum target, GLuint renderbuffer);
@@ -806,6 +813,7 @@ void glDepthMask(GLboolean flag);
 void glDepthRange(GLdouble nearVal, GLdouble farVal);
 void glDepthRangef(GLfloat nearVal, GLfloat farVal);
 void glDepthRangex(GLfixed nearVal, GLfixed farVal);
+void glDetachShader(GLuint program, GLuint shader);
 void glDisable(GLenum cap);
 void glDisablei(GLenum target, GLuint index);
 void glDisableClientState(GLenum array);
@@ -868,6 +876,7 @@ void glGetInteger64v(GLenum pname, GLint64 *data);
 void glGetIntegeri_v(GLenum target, GLuint index, GLint *data);
 void glGetIntegerv(GLenum pname, GLint *data);
 void glGetNamedBufferParameteriv(GLuint buffer, GLenum pname, GLint *params);
+GLint glGetFragDataLocation(GLuint program, const GLchar *name);
 void glGetPointerv(GLenum pname, void **params);
 void glGetProgramBinary(GLuint program, GLsizei bufSize, GLsizei *length, GLenum *binaryFormat, void *binary);
 void glGetProgramInfoLog(GLuint program, GLsizei maxLength, GLsizei *length, GLchar *infoLog);
@@ -876,6 +885,7 @@ void glGetRenderbufferParameteriv(GLenum target, GLenum pname, GLint *params);
 void glGetQueryObjectiv(GLuint id, GLenum pname, GLint *params);
 void glGetQueryObjectuiv(GLuint id, GLenum pname, GLuint *params);
 void glGetShaderInfoLog(GLuint handle, GLsizei maxLength, GLsizei *length, GLchar *infoLog);
+void glGetShaderPrecisionFormat(GLenum shaderType, GLenum precisionType, GLint *range, GLint *precision);
 void glGetShaderiv(GLuint handle, GLenum pname, GLint *params);
 void glGetShaderSource(GLuint handle, GLsizei bufSize, GLsizei *length, GLchar *source);
 const GLubyte *glGetString(GLenum name);
@@ -1079,6 +1089,7 @@ void glUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, cons
 GLboolean glUnmapBuffer(GLenum target);
 GLboolean glUnmapNamedBuffer(GLuint buffer);
 void glUseProgram(GLuint program);
+void glValidateProgram(GLuint program);
 void glVertex2d(GLdouble x, GLdouble y);
 void glVertex2f(GLfloat x, GLfloat y);
 void glVertex2i(GLint x, GLint y);

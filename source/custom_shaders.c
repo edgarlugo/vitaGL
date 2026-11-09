@@ -2132,6 +2132,77 @@ void glGetAttachedShaders(GLuint prog, GLsizei maxCount, GLsizei *count, GLuint 
 	}
 }
 
+void glDetachShader(GLuint prog, GLuint shad) {
+	THREAD_SAFE()
+
+	// Grabbing passed shader and program
+	shader *s = shaders[shad - 1];
+	program *p = &progs[prog - 1];
+
+#ifndef SKIP_ERROR_HANDLING
+	if (!s || (p->vshader != s && p->fshader != s)) {
+		SET_GL_ERROR(GL_INVALID_OPERATION)
+	}
+#endif
+
+	// Linked programs keep using their shaders, which are released together with the program
+	if (p->status != PROG_UNLINKED)
+		return;
+
+	if (p->vshader == s)
+		p->vshader = NULL;
+	else
+		p->fshader = NULL;
+	s->ref_counter--;
+	if (s->dirty && s->ref_counter == 0) {
+		release_shader(s);
+	}
+}
+
+void glValidateProgram(GLuint prog) {
+	// GL_VALIDATE_STATUS matches GL_LINK_STATUS since a linked program can always be drawn with
+}
+
+void glGetShaderPrecisionFormat(GLenum shaderType, GLenum precisionType, GLint *range, GLint *precision) {
+	switch (precisionType) {
+	case GL_LOW_FLOAT:
+	case GL_MEDIUM_FLOAT:
+	case GL_HIGH_FLOAT:
+		range[0] = 127;
+		range[1] = 127;
+		*precision = 23;
+		break;
+	case GL_LOW_INT:
+	case GL_MEDIUM_INT:
+	case GL_HIGH_INT:
+		range[0] = 31;
+		range[1] = 30;
+		*precision = 0;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, precisionType)
+	}
+}
+
+void glBindFragDataLocation(GLuint prog, GLuint colorNumber, const GLchar *name) {
+	// Fragment shaders have a single output, so it can only be bound to the first draw buffer
+#ifndef SKIP_ERROR_HANDLING
+	if (colorNumber != 0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, colorNumber)
+	}
+#endif
+}
+
+GLint glGetFragDataLocation(GLuint prog, const GLchar *name) {
+	program *p = &progs[prog - 1];
+#ifndef SKIP_ERROR_HANDLING
+	if (p->status == PROG_UNLINKED) {
+		SET_GL_ERROR_WITH_RET(GL_INVALID_OPERATION, -1)
+	}
+#endif
+	return strncmp(name, "gl_", 3) ? 0 : -1;
+}
+
 GLuint glCreateProgram(void) {
 	// Looking for a free program slot
 	GLuint i, j, res = 0xFFFFFFFF;
