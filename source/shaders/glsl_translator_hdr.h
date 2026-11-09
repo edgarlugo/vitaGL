@@ -161,6 +161,15 @@ inline float4 vgl_mod(float4 x, float4 y) { return x - y * floor(x / y); }
 #define mat2 float2x2
 #define mat3 float3x3
 #define mat4 float4x4
+#define mat2x2 float2x2
+#define mat2x3 float2x3
+#define mat2x4 float2x4
+#define mat3x2 float3x2
+#define mat3x3 float3x3
+#define mat3x4 float3x4
+#define mat4x2 float4x2
+#define mat4x3 float4x3
+#define mat4x4 float4x4
 #define matrixCompMult(x, y) ((x) * (y))
 #define matrix _matrix
 #define Matrix _Matrix
@@ -201,10 +210,67 @@ R"(#define float half
 #define float2x2 half2x2
 #define float3x3 half3x3
 #define float4x4 half4x4
+#define float2x3 half2x3
+#define float2x4 half2x4
+#define float3x2 half3x2
+#define float3x4 half3x4
+#define float4x2 half4x2
+#define float4x3 half4x3
 #define int short
 #define int2 short2
 #define int3 short3
 #define int4 short4
+)";
+
+static const char *glsl_matrices_hdr =
+R"(inline float3 vglMul(float2x3 M, float2 v) { return mul(v, M); }
+inline float2 vglMul(float3 v, float2x3 M) { return mul(M, v); }
+inline float2x3 vglMul(float2x3 M, float v) { return v * M; }
+inline float2x3 vglMul(float v, float2x3 M) { return M * v; }
+inline float4 vglMul(float2x4 M, float2 v) { return mul(v, M); }
+inline float2 vglMul(float4 v, float2x4 M) { return mul(M, v); }
+inline float2x4 vglMul(float2x4 M, float v) { return v * M; }
+inline float2x4 vglMul(float v, float2x4 M) { return M * v; }
+inline float2 vglMul(float3x2 M, float3 v) { return mul(v, M); }
+inline float3 vglMul(float2 v, float3x2 M) { return mul(M, v); }
+inline float3x2 vglMul(float3x2 M, float v) { return v * M; }
+inline float3x2 vglMul(float v, float3x2 M) { return M * v; }
+inline float4 vglMul(float3x4 M, float3 v) { return mul(v, M); }
+inline float3 vglMul(float4 v, float3x4 M) { return mul(M, v); }
+inline float3x4 vglMul(float3x4 M, float v) { return v * M; }
+inline float3x4 vglMul(float v, float3x4 M) { return M * v; }
+inline float2 vglMul(float4x2 M, float4 v) { return mul(v, M); }
+inline float4 vglMul(float2 v, float4x2 M) { return mul(M, v); }
+inline float4x2 vglMul(float4x2 M, float v) { return v * M; }
+inline float4x2 vglMul(float v, float4x2 M) { return M * v; }
+inline float3 vglMul(float4x3 M, float4 v) { return mul(v, M); }
+inline float4 vglMul(float3 v, float4x3 M) { return mul(M, v); }
+inline float4x3 vglMul(float4x3 M, float v) { return v * M; }
+inline float4x3 vglMul(float v, float4x3 M) { return M * v; }
+inline float3x2 vglMul(float2x2 A, float3x2 B) { return mul(B, A); }
+inline float4x2 vglMul(float2x2 A, float4x2 B) { return mul(B, A); }
+inline float2x3 vglMul(float2x3 A, float2x2 B) { return mul(B, A); }
+inline float3x3 vglMul(float2x3 A, float3x2 B) { return mul(B, A); }
+inline float4x3 vglMul(float2x3 A, float4x2 B) { return mul(B, A); }
+inline float2x4 vglMul(float2x4 A, float2x2 B) { return mul(B, A); }
+inline float3x4 vglMul(float2x4 A, float3x2 B) { return mul(B, A); }
+inline float4x4 vglMul(float2x4 A, float4x2 B) { return mul(B, A); }
+inline float2x2 vglMul(float3x2 A, float2x3 B) { return mul(B, A); }
+inline float3x2 vglMul(float3x2 A, float3x3 B) { return mul(B, A); }
+inline float4x2 vglMul(float3x2 A, float4x3 B) { return mul(B, A); }
+inline float2x3 vglMul(float3x3 A, float2x3 B) { return mul(B, A); }
+inline float4x3 vglMul(float3x3 A, float4x3 B) { return mul(B, A); }
+inline float2x4 vglMul(float3x4 A, float2x3 B) { return mul(B, A); }
+inline float3x4 vglMul(float3x4 A, float3x3 B) { return mul(B, A); }
+inline float4x4 vglMul(float3x4 A, float4x3 B) { return mul(B, A); }
+inline float2x2 vglMul(float4x2 A, float2x4 B) { return mul(B, A); }
+inline float3x2 vglMul(float4x2 A, float3x4 B) { return mul(B, A); }
+inline float4x2 vglMul(float4x2 A, float4x4 B) { return mul(B, A); }
+inline float2x3 vglMul(float4x3 A, float2x4 B) { return mul(B, A); }
+inline float3x3 vglMul(float4x3 A, float3x4 B) { return mul(B, A); }
+inline float4x3 vglMul(float4x3 A, float4x4 B) { return mul(B, A); }
+inline float2x4 vglMul(float4x4 A, float2x4 B) { return mul(B, A); }
+inline float3x4 vglMul(float4x4 A, float3x4 B) { return mul(B, A); }
 )";
 
 static const char *glsl_ffp_hdr =

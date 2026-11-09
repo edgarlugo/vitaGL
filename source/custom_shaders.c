@@ -3282,6 +3282,69 @@ inline void glUniformMatrix3fv(GLint location, GLsizei count, GLboolean transpos
 	vgl_fill_uniform_data(value, SCE_GXM_PARAMETER_TYPE_F32, 3, 3 * count)
 }
 
+static void uniform_matrix_nxm(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value, int cols, int rows) {
+	// Checking if the uniform does exist
+	if (location == -1 || location == 0)
+		return;
+
+	// Grabbing passed uniform
+	int offs = 0;
+	uniform *u = (uniform *)get_uniform_from_ptr(location, &offs);
+
+	// Setting passed value to desired uniform, column by column
+	float stack_tmp[4 * 12];
+	if (transpose) {
+		float *tmp = count <= 4 ? stack_tmp : gpu_alloc_mapped_temp(count * cols * rows * sizeof(float));
+		for (int i = 0; i < count; i++) {
+			const float *src = &value[i * cols * rows];
+			float *dst = &tmp[i * cols * rows];
+			for (int c = 0; c < cols; c++) {
+				for (int r = 0; r < rows; r++) {
+					dst[c * rows + r] = src[r * cols + c];
+				}
+			}
+		}
+		value = tmp;
+	}
+	vgl_fill_uniform_data(value, SCE_GXM_PARAMETER_TYPE_F32, rows, cols * count)
+}
+
+void glUniformMatrix2x3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 2, 3);
+}
+
+void glUniformMatrix2x4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 2, 4);
+}
+
+void glUniformMatrix3x2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 3, 2);
+}
+
+void glUniformMatrix3x4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 3, 4);
+}
+
+void glUniformMatrix4x2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 4, 2);
+}
+
+void glUniformMatrix4x3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+	THREAD_SAFE()
+
+	uniform_matrix_nxm(location, count, transpose, value, 4, 3);
+}
+
 void glProgramUniformMatrix3fv(GLuint prog, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
 	glUniformMatrix3fv(location, count, transpose, value);
 }

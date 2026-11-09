@@ -1300,6 +1300,9 @@ void glsl_translator_process(shader *s) {
 	GLboolean hasPointSize = GL_FALSE, hasFragDepth = GL_FALSE, hasFrontFacing = GL_FALSE, hasFrontColor = GL_FALSE;
 	GLboolean hasColor = GL_FALSE;
 	size += strlen(glsl_hdr);
+	GLboolean hasNonSquareMatrices = strstr(s->source, "mat2x") || strstr(s->source, "mat3x") || strstr(s->source, "mat4x");
+	if (hasNonSquareMatrices)
+		size += strlen(glsl_matrices_hdr);
 	if (glsl_precision_low)
 		size += strlen(glsl_precision_hdr);
 #ifdef HAVE_FFP_SHADER_SUPPORT
@@ -1431,6 +1434,8 @@ void glsl_translator_process(shader *s) {
 			strcat(s->source, "varying in float4 gl_Color : COLOR;\n");
 	}
 	strcat(s->source, glsl_hdr);
+	if (hasNonSquareMatrices)
+		strcat(s->source, glsl_matrices_hdr);
 	if (glsl_precision_low)
 		strcat(s->source, glsl_precision_hdr);
 	
