@@ -2880,6 +2880,100 @@ GLint glGetUniformLocation(GLuint prog, const GLchar *name) {
 	return -1;
 }
 
+static GLboolean is_matrix_uniform(shader *s, const SceGxmProgramParameter *param) {
+	matrix_uniform *m = s ? s->mat : NULL;
+	while (m) {
+		if (m->ptr == param)
+			return GL_TRUE;
+		m = (matrix_uniform *)m->chain;
+	}
+	return GL_FALSE;
+}
+
+// Reads back a uniform value, laid out like vglSetUniformData writes it, as floats or as integers
+static void get_uniform_values(GLuint prog, GLint location, void *params, GLboolean as_float) {
+#ifndef SKIP_ERROR_HANDLING
+	if (location == -1 || location == 0) {
+		SET_GL_ERROR(GL_INVALID_OPERATION)
+	}
+#endif
+
+	// Grabbing passed uniform
+	int offs = 0;
+	uniform *u = (uniform *)get_uniform_from_ptr(location, &offs);
+	if (u->type != UNIFORM_DATA) { // Sampler
+		if (as_float)
+			*(GLfloat *)params = u->sampler_index;
+		else
+			*(GLint *)params = u->sampler_index;
+		return;
+	}
+
+	program *p = &progs[prog - 1];
+	const SceGxmParameterType t = sceGxmProgramParameterGetType(u->ptr);
+	const uint32_t comps = sceGxmProgramParameterGetComponentCount(u->ptr);
+	uint32_t vectors = 1;
+	if (is_matrix_uniform(u->vptr ? p->vshader : p->fshader, u->ptr)) {
+		vectors = sceGxmProgramParameterGetArraySize(u->ptr);
+		offs = 0;
+	}
+
+	uint32_t stride;
+	switch (t) {
+	case SCE_GXM_PARAMETER_TYPE_F32:
+		stride = comps < 3 ? 8 : 16;
+		if (vectors > 1 && (comps == 2 || comps == 4))
+			stride = comps * 4;
+		break;
+	case SCE_GXM_PARAMETER_TYPE_F16:
+		stride = 8;
+		break;
+	default:
+		stride = comps * 4;
+		break;
+	}
+
+	const uint8_t *src = (const uint8_t *)(u->vptr ? u->vptr : u->fptr) + offs * stride;
+	GLfloat *f = (GLfloat *)params;
+	GLint *n = (GLint *)params;
+	for (uint32_t v = 0; v < vectors; v++) {
+		for (uint32_t c = 0; c < comps; c++) {
+			float val;
+			switch (t) {
+			case SCE_GXM_PARAMETER_TYPE_F32:
+				val = ((const float *)src)[c];
+				break;
+			case SCE_GXM_PARAMETER_TYPE_F16:
+				val = ((const __fp16 *)src)[c];
+				break;
+			case SCE_GXM_PARAMETER_TYPE_U32:
+				val = ((const uint32_t *)src)[c];
+				break;
+			default:
+				val = ((const int32_t *)src)[c];
+				break;
+			}
+			if (as_float)
+				*f++ = val;
+			else
+				*n++ = (GLint)val;
+		}
+		src += stride;
+	}
+}
+
+void glGetUniformfv(GLuint prog, GLint location, GLfloat *params) {
+	get_uniform_values(prog, location, params, GL_TRUE);
+}
+
+void glGetUniformiv(GLuint prog, GLint location, GLint *params) {
+	get_uniform_values(prog, location, params, GL_FALSE);
+}
+
+void glGetUniformuiv(GLuint prog, GLint location, GLuint *params) {
+	get_uniform_values(prog, location, params, GL_FALSE);
+}
+
 #define vgl_fill_uniform_data(p, type, size, count) { \
 	if (count == 1 && size >= 1 && size <= 4 && offs == 0 && (type == SCE_GXM_PARAMETER_TYPE_F32 || type == SCE_GXM_PARAMETER_TYPE_S32)) { \
 		const SceGxmParameterType dst_type = sceGxmProgramParameterGetType(u->ptr); \
