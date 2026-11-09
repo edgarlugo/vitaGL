@@ -2825,6 +2825,19 @@ GLint glGetUniformLocation(GLuint prog, const GLchar *name) {
 		name = "_Matrix";
 	else if (!strcmp(name, "sampler"))
 		name = "_sampler";
+	// s and t are turned into the x and y swizzles by the GLSL translator, uniforms named this way included
+	else if (!strcmp(name, "s"))
+		name = "x";
+	else if (!strcmp(name, "t"))
+		name = "y";
+	else if (!strcmp(name, "st"))
+		name = "xy";
+	else if (!strcmp(name, "ts"))
+		name = "yx";
+	else if (!strcmp(name, "ss"))
+		name = "xx";
+	else if (!strcmp(name, "tt"))
+		name = "yy";
 
 #ifdef STRICT_UNIFORMS_COMPLIANCE
 	int index = 0;
