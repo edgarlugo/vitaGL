@@ -184,6 +184,8 @@ extern "C" {
 #define GL_STENCIL_BITS                                 0x0D57
 #define GL_TEXTURE_1D                                   0x0DE0
 #define GL_TEXTURE_2D                                   0x0DE1
+#define GL_TEXTURE_WIDTH                                0x1000
+#define GL_TEXTURE_HEIGHT                               0x1001
 #define GL_DONT_CARE                                    0x1100
 #define GL_FASTEST                                      0x1101
 #define GL_NICEST                                       0x1102
@@ -874,6 +876,12 @@ const GLubyte *glGetString(GLenum name);
 const GLubyte *glGetStringi(GLenum name, GLuint index);
 void glGetSynciv(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei *length, GLint *values);
 void glGetTexEnviv(GLenum target, GLenum pname, GLint *params);
+void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat *params);
+void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint *params);
+void glGetTexParameterIiv(GLenum target, GLenum pname, GLint *params);
+void glGetTexParameterIuiv(GLenum target, GLenum pname, GLuint *params);
+void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat *params);
+void glGetTexParameteriv(GLenum target, GLenum pname, GLint *params);
 GLuint glGetUniformBlockIndex(GLuint prog, const GLchar *uniformBlockName);
 GLint glGetUniformLocation(GLuint prog, const GLchar *name);
 void glGetVertexAttribfv(GLuint index, GLenum pname, GLfloat *params);
@@ -1020,7 +1028,10 @@ void glTexEnvx(GLenum target, GLenum pname, GLfixed param);
 void glTexEnvxv(GLenum target, GLenum pname, GLfixed *param);
 void glTexImage1D(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLint border, GLenum format, GLenum type, const GLvoid *data);
 void glTexImage2D(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *data);
+void glTexParameterIiv(GLenum target, GLenum pname, const GLint *param);
+void glTexParameterIuiv(GLenum target, GLenum pname, const GLuint *param);
 void glTexParameterf(GLenum target, GLenum pname, GLfloat param);
+void glTexParameterfv(GLenum target, GLenum pname, const GLfloat *param);
 void glTexParameteri(GLenum target, GLenum pname, GLint param);
 void glTexParameteriv(GLenum target, GLenum pname, GLint *param);
 void glTexParameterx(GLenum target, GLenum pname, GLfixed param);
