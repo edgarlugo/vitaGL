@@ -31,6 +31,42 @@ framebuffer *active_read_fb = NULL; // Current readback framebuffer in use
 framebuffer *active_write_fb = NULL; // Current write framebuffer in use
 renderbuffer *active_rb = NULL; // Current renderbuffer in use
 
+#ifdef HAVE_ACCURATE_MSAA
+static inline SceGxmMultisampleMode gl_samples_to_gxm(GLsizei samples) {
+	return samples > 2 ? SCE_GXM_MULTISAMPLE_4X : samples > 0 ? SCE_GXM_MULTISAMPLE_2X : SCE_GXM_MULTISAMPLE_NONE;
+}
+
+static void update_framebuffer_msaa(framebuffer *fb, SceGxmMultisampleMode mode) {
+	if (fb->msaa_mode == mode) {
+		return;
+	}
+
+	// Finish the current scene before changing its render-target descriptors.
+	if (fb == in_use_framebuffer) {
+		glFlush();
+	}
+	
+	if (fb->target) {
+		mark_rt_as_dirty(fb->target);
+		fb->target = NULL;
+	}
+	if (fb->depthbuffer_ptr) {
+#ifndef DEPTH_STENCIL_HACK
+		mark_depth_stencil_as_dirty(fb->depthbuffer_ptr);
+#endif
+		fb->depthbuffer_ptr = NULL;
+	}
+	fb->depthbuffer_state &= ~DEPTHBUFFER_READY;
+	fb->msaa_mode = mode;
+	if (fb->tex) {
+		sceGxmColorSurfaceSetScaleMode(&fb->colorbuffer, mode == SCE_GXM_MULTISAMPLE_NONE ? SCE_GXM_COLOR_SURFACE_SCALE_NONE : SCE_GXM_COLOR_SURFACE_SCALE_MSAA_DOWNSCALE);
+	}
+	if (fb == active_write_fb || fb == in_use_framebuffer) {
+		dirty_framebuffer = GL_TRUE;
+	}
+}
+#endif
+
 uint32_t get_alpha_channel_size(SceGxmColorFormat type) {
 	switch (type) {
 	case SCE_GXM_COLOR_FORMAT_U8_R:
@@ -203,6 +239,9 @@ inline __attribute__((always_inline)) void glGenFramebuffers(GLsizei n, GLuint *
 		if (!framebuffers[i].active) {
 			ids[j++] = (GLuint)&framebuffers[i];
 			framebuffers[i].active = GL_TRUE;
+#ifdef HAVE_ACCURATE_MSAA
+			framebuffers[i].msaa_mode = SCE_GXM_MULTISAMPLE_NONE;
+#endif
 			framebuffers[i].depthbuffer_state = DEPTHBUFFER_MISSING;
 			framebuffers[i].depthbuffer_ptr = NULL;
 			framebuffers[i].target = NULL;
@@ -271,7 +310,7 @@ void glDeleteFramebuffers(GLsizei n, const GLuint *ids) {
 			}
 #ifndef DEPTH_STENCIL_HACK
 			if (fb->depthbuffer_ptr) {
-				mark_as_dirty(fb->depthbuffer_ptr->depthData);
+				mark_depth_stencil_as_dirty(fb->depthbuffer_ptr);
 			}
 #endif
 		}
@@ -355,7 +394,7 @@ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbu
 	// Discarding any previously bound hidden depth buffers
 	if (fb->depthbuffer_ptr) {
 #ifndef DEPTH_STENCIL_HACK
-		mark_as_dirty(fb->depthbuffer_ptr->depthData);
+		mark_depth_stencil_as_dirty(fb->depthbuffer_ptr);
 #endif
 	}
 	fb->depthbuffer_ptr = NULL;
@@ -387,7 +426,7 @@ void glNamedFramebufferRenderbuffer(GLuint target, GLenum attachment, GLenum ren
 	// Discarding any previously bound hidden depth buffers
 	if (fb->depthbuffer_ptr) {
 #ifndef DEPTH_STENCIL_HACK
-		mark_as_dirty(fb->depthbuffer_ptr->depthData);
+		mark_depth_stencil_as_dirty(fb->depthbuffer_ptr);
 #endif
 		fb->depthbuffer_ptr = NULL;
 	}
@@ -476,10 +515,56 @@ inline void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum text
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, textarget)
 	} else if (tex_id >= TEXTURES_NUM) {
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, tex_id)
+	} else if (attachment != GL_COLOR_ATTACHMENT0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, attachment)		
 	}
 #endif
-	
+
+#ifdef HAVE_ACCURATE_MSAA
+	update_framebuffer_msaa(fb, SCE_GXM_MULTISAMPLE_NONE);
+#endif
 	_glFramebufferTexture2D(fb, attachment, &texture_slots[tex_id], tex_id);
+}
+
+void glFramebufferTexture2DMultisample(GLenum target, GLenum attachment, GLenum textarget, GLuint tex_id, GLint level, GLsizei samples) {
+#ifdef HAVE_ACCURATE_MSAA
+	THREAD_SAFE()
+	
+	framebuffer *fb;
+	switch (target) {
+	case GL_FRAMEBUFFER:
+	case GL_DRAW_FRAMEBUFFER:
+		fb = active_write_fb;
+		break;
+	case GL_READ_FRAMEBUFFER:
+		fb = active_read_fb;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
+
+#ifndef SKIP_ERROR_HANDLING
+	if (!fb) {
+		SET_GL_ERROR(GL_INVALID_OPERATION)
+	}
+	if (attachment != GL_COLOR_ATTACHMENT0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, attachment)		
+	} else if (textarget != GL_TEXTURE_2D) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, textarget)
+	} else if (level != 0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, level)
+	} else if (tex_id >= TEXTURES_NUM) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, tex_id)		
+	} else if (samples < 0 || samples > 4) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, samples)
+	}
+#endif
+
+	update_framebuffer_msaa(fb, gl_samples_to_gxm(samples));
+	_glFramebufferTexture2D(fb, attachment, &texture_slots[tex_id], tex_id);
+#else
+	vgl_log("%s:%d %s: This function requires HAVE_ACCURATE_MSAA=1 flag.\n", __FILE__, __LINE__, __func__);
+#endif
 }
 
 inline void glNamedFramebufferTexture2D(GLuint target, GLenum attachment, GLenum textarget, GLuint tex_id, GLint level) {
@@ -494,9 +579,14 @@ inline void glNamedFramebufferTexture2D(GLuint target, GLenum attachment, GLenum
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, textarget)
 	} else if (tex_id >= TEXTURES_NUM) {
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, tex_id)
+	} else if (attachment != GL_COLOR_ATTACHMENT0) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, attachment)		
 	}
 #endif
-	
+
+#ifdef HAVE_ACCURATE_MSAA
+	update_framebuffer_msaa(fb, SCE_GXM_MULTISAMPLE_NONE);
+#endif
 	_glFramebufferTexture2D(fb, attachment, &texture_slots[tex_id], tex_id);
 }
 

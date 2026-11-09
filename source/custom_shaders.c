@@ -238,6 +238,16 @@ char vgl_file_cache_path[256];
 	}
 #endif
 	
+#ifdef HAVE_ACCURATE_MSAA
+#define setup_frag_program() \
+	if ((p->blend_info.raw != blend_info.raw) || (is_fbo_float != p->is_fbo_float) || p->msaa_mode != VGL_ACTIVE_MSAA_MODE) { \
+		p->is_fbo_float = is_fbo_float; \
+		p->blend_info.raw = blend_info.raw; \
+		p->msaa_mode = VGL_ACTIVE_MSAA_MODE; \
+		rebuild_frag_shader(p->fshader->id, &p->fprog, (SceGxmProgram *)p->vshader->prog, is_fbo_float ? SCE_GXM_OUTPUT_REGISTER_FORMAT_HALF4 : SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4); \
+	} \
+	sceGxmSetFragmentProgram(gxm_context, p->fprog);
+#else
 #define setup_frag_program() \
 	if ((p->blend_info.raw != blend_info.raw) || (is_fbo_float != p->is_fbo_float)) { \
 		p->is_fbo_float = is_fbo_float; \
@@ -245,6 +255,7 @@ char vgl_file_cache_path[256];
 		rebuild_frag_shader(p->fshader->id, &p->fprog, (SceGxmProgram *)p->vshader->prog, is_fbo_float ? SCE_GXM_OUTPUT_REGISTER_FORMAT_HALF4 : SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4); \
 	} \
 	sceGxmSetFragmentProgram(gxm_context, p->fprog);
+#endif
 	
 #define align_attributes(attributes, streams) \
 	if (p->has_unaligned_attrs) { \
@@ -364,6 +375,9 @@ typedef struct {
 	uint8_t attr_map[VERTEX_ATTRIBS_NUM];
 	SceGxmVertexProgram *vprog;
 	SceGxmFragmentProgram *fprog;
+#ifdef HAVE_ACCURATE_MSAA
+	SceGxmMultisampleMode msaa_mode;
+#endif
 	blend_config blend_info;
 	GLuint attr_num;
 	GLuint attr_idx;
@@ -2237,6 +2251,9 @@ GLuint glCreateProgram(void) {
 			progs[i].num_glsl_attr = 0;
 			progs[i].glsl_attr_map = NULL;
 			progs[i].is_fbo_float = 0xFF;
+#ifdef HAVE_ACCURATE_MSAA
+			progs[i].msaa_mode = VGL_ACTIVE_MSAA_MODE;
+#endif
 			for (j = 0; j < VERTEX_ATTRIBS_NUM; j++) {
 				progs[i].attr[j].regIndex = 0xDEAD;
 			}
@@ -2843,6 +2860,9 @@ void glLinkProgram(GLuint progr) {
 			p->stream, p->attr_mode == VGL_ATTRIB_UNPACKED ? p->attr_num : 1, &p->vprog);
 		rebuild_frag_shader(p->fshader->id, &p->fprog, (SceGxmProgram *)p->vshader->prog, is_fbo_float ? SCE_GXM_OUTPUT_REGISTER_FORMAT_HALF4 : SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4);
 		p->is_fbo_float = is_fbo_float;
+#ifdef HAVE_ACCURATE_MSAA
+		p->msaa_mode = VGL_ACTIVE_MSAA_MODE;
+#endif
 
 		// Populating current blend settings
 		p->blend_info.raw = blend_info.raw;
@@ -2875,6 +2895,10 @@ void glLinkProgram(GLuint progr) {
 
 void glUseProgram(GLuint prog) {
 	THREAD_SAFE()
+
+	if (cur_program == prog) {
+		return;
+	}
 
 	// Setting current custom program to passed program
 	cur_program = prog;
@@ -2991,15 +3015,39 @@ GLint glGetUniformLocation(GLuint prog, const GLchar *name) {
 	return -1;
 }
 
-#define vgl_fill_uniform_data(p, type, size, count) \
-	if (u->vptr) { \
-		vglSetUniformData(u->vptr, sceGxmProgramParameterGetType(u->ptr), offs, count, size, p, type); \
-		dirty_shader_vert_unifs = GL_TRUE; \
+#define vgl_fill_uniform_data(p, type, size, count) { \
+	if (count == 1 && size >= 1 && size <= 4 && offs == 0 && (type == SCE_GXM_PARAMETER_TYPE_F32 || type == SCE_GXM_PARAMETER_TYPE_S32)) { \
+		const SceGxmParameterType dst_type = sceGxmProgramParameterGetType(u->ptr); \
+		if (dst_type == type) { \
+			if (u->vptr) { \
+				__builtin_memcpy(u->vptr, p, size * sizeof(uint32_t)); \
+				dirty_shader_vert_unifs = GL_TRUE; \
+			} \
+			if (u->fptr) { \
+				__builtin_memcpy(u->fptr, p, size * sizeof(uint32_t)); \
+				dirty_shader_frag_unifs = GL_TRUE; \
+			} \
+		} else { \
+			if (u->vptr) { \
+				vglSetUniformData(u->vptr, dst_type, offs, count, size, p, type); \
+				dirty_shader_vert_unifs = GL_TRUE; \
+			} \
+			if (u->fptr) { \
+				vglSetUniformData(u->fptr, dst_type, offs, count, size, p, type); \
+				dirty_shader_frag_unifs = GL_TRUE; \
+			} \
+		} \
+	} else { \
+		if (u->vptr) { \
+			vglSetUniformData(u->vptr, sceGxmProgramParameterGetType(u->ptr), offs, count, size, p, type); \
+			dirty_shader_vert_unifs = GL_TRUE; \
+		} \
+		if (u->fptr) { \
+			vglSetUniformData(u->fptr, sceGxmProgramParameterGetType(u->ptr), offs, count, size, p, type); \
+			dirty_shader_frag_unifs = GL_TRUE; \
+		} \
 	} \
-	if (u->fptr) { \
-		vglSetUniformData(u->fptr, sceGxmProgramParameterGetType(u->ptr), offs, count, size, p, type); \
-		dirty_shader_frag_unifs = GL_TRUE; \
-	}
+}
 
 inline void glUniform1i(GLint location, GLint v0) {
 	THREAD_SAFE()
@@ -3273,7 +3321,7 @@ inline void glUniform4iv(GLint location, GLsizei count, const GLint *value) {
 	uniform *u = (uniform *)get_uniform_from_ptr(location, &offs);
 
 	// Setting passed value to desired uniform
-	vgl_fill_uniform_data(value, SCE_GXM_PARAMETER_TYPE_S32, 4, 1)
+	vgl_fill_uniform_data(value, SCE_GXM_PARAMETER_TYPE_S32, 4, count)
 }
 
 void glProgramUniform4iv(GLuint prog, GLint location, GLsizei count, const GLint *value) {
@@ -3331,8 +3379,9 @@ inline void glUniformMatrix2fv(GLint location, GLsizei count, GLboolean transpos
 	uniform *u = (uniform *)get_uniform_from_ptr(location, &offs);
 
 	// Setting passed value to desired uniform
+	float stack_tmp[4 * 4];
 	if (transpose) {
-		float *tmp = gpu_alloc_mapped_temp(count * 4 * sizeof(float));
+		float *tmp = count <= 4 ? stack_tmp : gpu_alloc_mapped_temp(count * 4 * sizeof(float));
 		for (int i = 0; i < count; i++) {
 			matrix2x2_transpose(&tmp[i * 4], &value[i * 4]);
 		}
@@ -3357,8 +3406,9 @@ inline void glUniformMatrix3fv(GLint location, GLsizei count, GLboolean transpos
 	uniform *u = (uniform *)get_uniform_from_ptr(location, &offs);
 
 	// Setting passed value to desired uniform
+	float stack_tmp[4 * 9];
 	if (transpose) {
-		float *tmp = gpu_alloc_mapped_temp(count * 9 * sizeof(float));
+		float *tmp = count <= 4 ? stack_tmp : gpu_alloc_mapped_temp(count * 9 * sizeof(float));
 		for (int i = 0; i < count; i++) {
 			matrix3x3_transpose(&tmp[i * 9], &value[i * 9]);
 		}
@@ -3384,8 +3434,9 @@ inline void glUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpos
 	uniform *u = (uniform *)get_uniform_from_ptr(location, &offs);
 
 	// Setting passed value to desired uniform
+	float stack_tmp[4 * 16];
 	if (transpose) {
-		float *tmp = gpu_alloc_mapped_temp(count * 16 * sizeof(float));
+		float *tmp = count <= 4 ? stack_tmp : gpu_alloc_mapped_temp(count * 16 * sizeof(float));
 		for (int i = 0; i < count; i++) {
 			matrix4x4_transpose(&tmp[i * 16], &value[i * 16]);
 		}

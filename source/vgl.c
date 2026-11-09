@@ -79,6 +79,20 @@ SceGxmFragmentProgram *blit_fragment_program_float_patched;
 const SceGxmProgramParameter *blit_position;
 const SceGxmProgramParameter *blit_texcoord;
 
+#ifdef HAVE_ACCURATE_MSAA
+static SceGxmFragmentProgram *builtin_programs[3][4];
+static SceGxmMultisampleMode curr_msaa_mode;
+void refresh_builtin_programs(SceGxmMultisampleMode mode) {
+	if (mode != curr_msaa_mode) {
+		clear_fragment_program_patched = builtin_programs[mode][0];
+		clear_fragment_program_float_patched = builtin_programs[mode][1];
+		blit_fragment_program_patched = builtin_programs[mode][2];
+		blit_fragment_program_float_patched = builtin_programs[mode][3];
+		curr_msaa_mode = mode;
+	}
+}
+#endif
+
 vector4f *clear_vertices = NULL; // Memblock starting address for clear screen vertices
 vector3f *depth_vertices = NULL; // Memblock starting address for depth clear screen vertices
 SceGxmPrecomputedVertexState scissor_clear_vertex_state; // Precomputed vertex state for the fullscreen mask clear
@@ -343,6 +357,23 @@ GLboolean vglInitWithCustomSizes(int pool_size, int width, int height, int ram_p
 	sceGxmPrecomputedDrawInit(&blit_draw_state, blit_vertex_program_patched, blit_draw_state_mem);
 	sceGxmPrecomputedDrawSetParams(&blit_draw_state, SCE_GXM_PRIMITIVE_TRIANGLE_FAN, SCE_GXM_INDEX_FORMAT_U16, depth_clear_indices, 4);
 
+#ifdef HAVE_ACCURATE_MSAA
+	curr_msaa_mode = msaa_mode;
+	for (int i = 0; i < 3; i++) {
+		if (i == msaa_mode) {
+			builtin_programs[i][0] = clear_fragment_program_patched;
+			builtin_programs[i][1] = clear_fragment_program_float_patched;
+			builtin_programs[i][2] = blit_fragment_program_patched;
+			builtin_programs[i][3] = blit_fragment_program_float_patched;
+		} else {
+			{ patch_fragment_program(clear_fragment_id, SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4, i, NULL, NULL, &builtin_programs[i][0]); }
+			{ patch_fragment_program(clear_fragment_id, SCE_GXM_OUTPUT_REGISTER_FORMAT_HALF4, i, NULL, NULL, &builtin_programs[i][1]); }
+			{ patch_fragment_program(blit_fragment_id, SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4, i, NULL, NULL, &builtin_programs[i][2]); }
+			{ patch_fragment_program(blit_fragment_id, SCE_GXM_OUTPUT_REGISTER_FORMAT_HALF4, i, NULL, NULL, &builtin_programs[i][3]); }
+		}
+    }
+#endif
+
 	sceGxmSetTwoSidedEnable(gxm_context, SCE_GXM_TWO_SIDED_ENABLED);
 
 	// Scissor Test shader register
@@ -583,8 +614,12 @@ void *vglAlloc(uint32_t size, vglMemType type) {
 	return vgl_malloc(size, type);
 }
 
-void *vglForceAlloc(uint32_t size) {
-	return gpu_alloc_mapped_for_cpu(size);
+void *vglForceAlloc(uint32_t size, GLboolean for_gpu) {
+	return for_gpu ? gpu_alloc_mapped_for_gpu(size) : gpu_alloc_mapped_for_cpu(size);
+}
+
+void *vglForceAllocAligned(uint32_t alignment, uint32_t size, GLboolean for_gpu) {
+	return for_gpu ? gpu_alloc_mapped_aligned_for_gpu(alignment, size) : gpu_alloc_mapped_aligned_for_cpu(alignment, size);
 }
 
 void *vglMalloc(uint32_t size) {
@@ -754,6 +789,8 @@ void vglUseExtraMem(GLboolean use) {
 void vglSetCircularPoolSize(uint32_t size) {
 #ifndef DISABLE_CIRCULAR_POOL
 	circular_data_pool_size = size;
+#else
+	vgl_log("%s:%d %s: This function is not compatible with NO_CIRCULAR_POOL=1 flag.\n", __FILE__, __LINE__, __func__);
 #endif
 }
 
@@ -764,6 +801,8 @@ void vglUseCachedMem(GLboolean use) {
 void vglSetTextureCacheFrequency(GLuint freq) {
 #ifdef HAVE_TEX_CACHE
 	vgl_tex_cache_freq = freq;
+#else
+	vgl_log("%s:%d %s: This function requires HAVE_TEXTURE_CACHE=1 flag.\n", __FILE__, __LINE__, __func__);
 #endif
 }
 
@@ -771,6 +810,8 @@ void vglSetupScratchMemory(GLboolean scratch_for_dynamic, GLboolean scratch_for_
 #if defined(HAVE_SCRATCH_MEMORY) && !defined(DISABLE_CIRCULAR_POOL)
 	vgl_dynamic_wants_scratch = scratch_for_dynamic;
 	vgl_stream_wants_scratch = scratch_for_stream;
+#else
+	vgl_log("%s:%d %s: This function is not compatible with the current vitaGL compile flags.\n", __FILE__, __LINE__, __func__);
 #endif
 }
 
@@ -785,12 +826,16 @@ uint32_t vglGetFrameNumber() {
 void vglPhycontMemLazyInit(size_t size) {
 #ifndef PHYCONT_ON_DEMAND
 	vgl_mem_provide_phycont(size);
+#else
+	vgl_log("%s:%d %s: This function is not compatible with PHYCONT_ON_DEMAND=1 flag.\n", __FILE__, __LINE__, __func__);
 #endif
 }
 
 void vglSetShaderCachePath(const char *path) {
 #ifdef HAVE_SHADER_CACHE
 	strcpy(shader_cache_root, path);
+#else
+	vgl_log("%s:%d %s: This function requires HAVE_SHADER_CACHE=1 flag.\n", __FILE__, __LINE__, __func__);
 #endif
 }
 

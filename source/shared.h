@@ -475,16 +475,9 @@ static inline __attribute__((always_inline)) void patch_fragment_program(SceGxmS
 #endif
 }
 
-#define recalculate_normal_matrix() \
-	matrix3x3 inverted; \
-	matrix3x3 top_modelview_matrix; \
-	vgl_fast_memcpy(top_modelview_matrix[0], modelview_matrix[0], sizeof(float) * 3); \
-	vgl_fast_memcpy(top_modelview_matrix[1], modelview_matrix[1], sizeof(float) * 3); \
-	vgl_fast_memcpy(top_modelview_matrix[2], modelview_matrix[2], sizeof(float) * 3); \
-	matrix3x3_invert(inverted, top_modelview_matrix); \
-	matrix3x3_transpose(normal_matrix, inverted);
+#define recalculate_normal_matrix() matrix4x4_normal_matrix(normal_matrix, modelview_matrix)
 
-#define rebuild_frag_shader(x, y, z, w) patch_fragment_program(x, w, msaa_mode, &blend_info.info, z, y) // Creates a new patched fragment program with proper blend settings
+#define rebuild_frag_shader(x, y, z, w) patch_fragment_program(x, w, VGL_ACTIVE_MSAA_MODE, &blend_info.info, z, y) // Creates a new patched fragment program with proper blend settings
 
 #ifdef HAVE_SOFTFP_ABI
 extern __attribute__((naked)) void sceGxmSetViewport_sfp(SceGxmContext *context, float xOffset, float xScale, float yOffset, float yScale, float zOffset, float zScale);
@@ -591,6 +584,15 @@ enum {
 	DEPTHBUFFER_READY
 };
 
+#ifndef DEPTH_STENCIL_HACK
+static inline __attribute__((always_inline)) void mark_depth_stencil_as_dirty(SceGxmDepthStencilSurface *surface) {
+	mark_as_dirty(surface->depthData);
+	if (surface->stencilData) {
+		mark_as_dirty(surface->stencilData);
+	}
+}
+#endif
+
 // Framebuffer struct
 typedef struct {
 	GLboolean active;
@@ -606,6 +608,9 @@ typedef struct {
 	int stride;
 	void *data;
 	texture *tex;
+#ifdef HAVE_ACCURATE_MSAA
+	SceGxmMultisampleMode msaa_mode;
+#endif
 } framebuffer;
 
 // Query struct
@@ -865,6 +870,14 @@ extern legacy_vtx_attachment current_vtx;
 extern void *frag_uniforms;
 extern void *vert_uniforms;
 extern SceGxmMultisampleMode msaa_mode;
+#ifdef HAVE_ACCURATE_MSAA
+#define VGL_FRAMEBUFFER_MSAA(fb) fb->msaa_mode
+#define VGL_ACTIVE_MSAA_MODE (active_write_fb ? active_write_fb->msaa_mode : msaa_mode)
+void refresh_builtin_programs(SceGxmMultisampleMode mode);
+#else
+#define VGL_FRAMEBUFFER_MSAA(fb) msaa_mode
+#define VGL_ACTIVE_MSAA_MODE msaa_mode
+#endif
 extern void *gxm_color_surfaces_addr[DISPLAY_MAX_BUFFER_COUNT]; // Display color surfaces memblock starting addresses
 extern SceGxmColorSurface gxm_color_surfaces[DISPLAY_MAX_BUFFER_COUNT]; // Display color surfaces
 extern unsigned int gxm_back_buffer_index; // Display back buffer id
@@ -1220,7 +1233,6 @@ void init_gxm(void); // Inits sceGxm
 void init_gxm_context(SceGxmContext **ctx, uint8_t ctx_slot); // Inits sceGxm context
 void create_display_render_target(void); // Creates render target for the display
 void init_display_color_surfaces(GLboolean is_swap); // Creates color surfaces for the display
-void init_depth_stencil_buffer(uint32_t w, uint32_t h, SceGxmDepthStencilSurface *surface, GLboolean has_stencil); // Creates depth and stencil surfaces
 void init_display_depth_stencil_surfaces(void); // Creates depth and stencil surfaces for the display
 void start_shader_patcher(void); // Creates a shader patcher instance
 void scene_reset(void); // Resets drawing scene if required
@@ -1382,7 +1394,7 @@ static inline __attribute__((always_inline)) void _glFramebufferTexture2D(frameb
 			}
 			if (fb->depthbuffer_ptr) {
 #ifndef DEPTH_STENCIL_HACK
-				mark_as_dirty(fb->depthbuffer_ptr->depthData);
+				mark_depth_stencil_as_dirty(fb->depthbuffer_ptr);
 #endif
 				fb->depthbuffer_ptr = NULL;
 				fb->depthbuffer_state &= ~DEPTHBUFFER_READY;
@@ -1398,7 +1410,7 @@ static inline __attribute__((always_inline)) void _glFramebufferTexture2D(frameb
 
 		// Allocating colorbuffer
 		sceGxmColorSurfaceInit(&fb->colorbuffer, get_color_from_texture(fmt), SCE_GXM_COLOR_SURFACE_LINEAR,
-			msaa_mode == SCE_GXM_MULTISAMPLE_NONE ? SCE_GXM_COLOR_SURFACE_SCALE_NONE : SCE_GXM_COLOR_SURFACE_SCALE_MSAA_DOWNSCALE,
+			VGL_FRAMEBUFFER_MSAA(fb) == SCE_GXM_MULTISAMPLE_NONE ? SCE_GXM_COLOR_SURFACE_SCALE_NONE : SCE_GXM_COLOR_SURFACE_SCALE_MSAA_DOWNSCALE,
 			fb->is_float ? SCE_GXM_OUTPUT_REGISTER_SIZE_64BIT : SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT,
 			fb->width, fb->height, VGL_ALIGN(fb->width, 8), fb->data);
 		
