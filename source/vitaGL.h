@@ -461,6 +461,23 @@ extern "C" {
 #define GL_UNIFORM_BUFFER_BINDING                       0x8A28
 #define GL_UNIFORM_BUFFER_START                         0x8A29
 #define GL_UNIFORM_BUFFER_SIZE                          0x8A2A
+#define GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH         0x8A35
+#define GL_ACTIVE_UNIFORM_BLOCKS                        0x8A36
+#define GL_UNIFORM_TYPE                                 0x8A37
+#define GL_UNIFORM_SIZE                                 0x8A38
+#define GL_UNIFORM_NAME_LENGTH                          0x8A39
+#define GL_UNIFORM_BLOCK_INDEX                          0x8A3A
+#define GL_UNIFORM_OFFSET                               0x8A3B
+#define GL_UNIFORM_ARRAY_STRIDE                         0x8A3C
+#define GL_UNIFORM_MATRIX_STRIDE                        0x8A3D
+#define GL_UNIFORM_IS_ROW_MAJOR                         0x8A3E
+#define GL_UNIFORM_BLOCK_BINDING                        0x8A3F
+#define GL_UNIFORM_BLOCK_DATA_SIZE                      0x8A40
+#define GL_UNIFORM_BLOCK_NAME_LENGTH                    0x8A41
+#define GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS                0x8A42
+#define GL_UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES         0x8A43
+#define GL_UNIFORM_BLOCK_REFERENCED_BY_VERTEX_SHADER    0x8A44
+#define GL_UNIFORM_BLOCK_REFERENCED_BY_FRAGMENT_SHADER  0x8A46
 #define GL_FRAGMENT_SHADER                              0x8B30
 #define GL_VERTEX_SHADER                                0x8B31
 #define GL_MAX_VARYING_FLOATS                           0x8B4B
@@ -899,6 +916,10 @@ void glGetTexParameterIuiv(GLenum target, GLenum pname, GLuint *params);
 void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat *params);
 void glGetTexParameteriv(GLenum target, GLenum pname, GLint *params);
 GLuint glGetUniformBlockIndex(GLuint prog, const GLchar *uniformBlockName);
+void glGetUniformIndices(GLuint program, GLsizei uniformCount, const GLchar *const *uniformNames, GLuint *uniformIndices);
+void glGetActiveUniformBlockiv(GLuint program, GLuint uniformBlockIndex, GLenum pname, GLint *params);
+void glGetActiveUniformBlockName(GLuint program, GLuint uniformBlockIndex, GLsizei bufSize, GLsizei *length, GLchar *uniformBlockName);
+void glGetActiveUniformsiv(GLuint program, GLsizei uniformCount, const GLuint *uniformIndices, GLenum pname, GLint *params);
 GLint glGetUniformLocation(GLuint prog, const GLchar *name);
 void glGetUniformfv(GLuint program, GLint location, GLfloat *params);
 void glGetUniformiv(GLuint program, GLint location, GLint *params);

@@ -804,6 +804,22 @@ static inline __attribute__((always_inline)) void compile_shader(shader *s, GLbo
 				strcpy(b->name, block_name && block_name[0] ? block_name : sceShaccCgGetParameterName(param));
 				b->chain = s->unif_blk;
 				s->unif_blk = b;
+				// Matrices in the block are tracked like the default uniform ones
+				SceShaccCgParameter member = sceShaccCgGetFirstUniformBlockParameter(param);
+				while (member) {
+					if (sceShaccCgGetParameterClass(member) == SCE_SHACCCG_PARAMETERCLASS_MATRIX) {
+						char member_name[256];
+						sprintf(member_name, "%s.%s", sceShaccCgGetParameterName(param), sceShaccCgGetParameterName(member));
+						const SceGxmProgramParameter *member_param = sceGxmProgramFindParameterByName(s->prog, member_name);
+						if (member_param) {
+							matrix_uniform *m = (matrix_uniform *)vglMalloc(sizeof(matrix_uniform));
+							m->ptr = member_param;
+							m->chain = s->mat;
+							s->mat = m;
+						}
+					}
+					member = sceShaccCgGetNextParameter(member);
+				}
 			}
 			param = sceShaccCgGetNextParameter(param);
 		}
@@ -1850,6 +1866,84 @@ static inline __attribute__((always_inline)) block_uniform *get_block_details(bl
 	return NULL;
 }
 
+// Uniform blocks are numbered with the vertex shader ones first, skipping the ones shared with the fragment shader
+static ubo *get_uniform_block(program *p, GLuint index, shader **s) {
+	ubo *u = p->vert_ubos;
+	while (u) {
+		if (!u->alias && index-- == 0) {
+			*s = p->vshader;
+			return u;
+		}
+		u = (ubo *)u->chain;
+	}
+	u = p->frag_ubos;
+	while (u) {
+		if (index-- == 0) {
+			*s = p->fshader;
+			return u;
+		}
+		u = (ubo *)u->chain;
+	}
+	return NULL;
+}
+
+static GLuint get_uniform_blocks_num(program *p) {
+	GLuint i = 0;
+	shader *s;
+	while (get_uniform_block(p, i, &s))
+		i++;
+	return i;
+}
+
+// Uniform block members follow the default uniforms in the active uniforms indices
+static const SceGxmProgramParameter *get_block_member(program *p, GLuint index, ubo **block, GLuint *block_index) {
+	shader *s;
+	ubo *u;
+	for (GLuint i = 0; (u = get_uniform_block(p, i, &s)); i++) {
+		uint32_t cnt = sceGxmProgramGetParameterCount(s->prog);
+		for (uint32_t j = 0; j < cnt; j++) {
+			const SceGxmProgramParameter *param = sceGxmProgramGetParameter(s->prog, j);
+			if (sceGxmProgramParameterGetCategory(param) == SCE_GXM_PARAMETER_CATEGORY_UNIFORM && sceGxmProgramParameterGetContainerIndex(param) == u->idx && index-- == 0) {
+				*block = u;
+				*block_index = i;
+				return param;
+			}
+		}
+	}
+	return NULL;
+}
+
+static GLuint get_block_members_num(program *p) {
+	GLuint i = 0, block_index;
+	ubo *u;
+	while (get_block_member(p, i, &u, &block_index))
+		i++;
+	return i;
+}
+
+// Members are named "instance.member" in sceGxm programs, anonymous blocks are named after the block by the GLSL translator
+static const char *get_block_member_name(ubo *u, const SceGxmProgramParameter *param, char *buf) {
+	const char *name = sceGxmProgramParameterGetName(param);
+	const char *block_name = ((block_uniform *)u->ptr)->name;
+	const char *member = strchr(name, '.');
+	if (!member)
+		return name;
+	if (!strncmp(name, block_name, member - name) && block_name[member - name] == 0)
+		return member + 1;
+	sprintf(buf, "%s%s", block_name, member);
+	return buf;
+}
+
+static GLuint get_block_size(shader *s, ubo *u) {
+	uint32_t cnt = sceGxmProgramGetParameterCount(s->prog);
+	for (uint32_t i = 0; i < cnt; i++) {
+		const SceGxmProgramParameter *param = sceGxmProgramGetParameter(s->prog, i);
+		if (sceGxmProgramParameterGetCategory(param) == SCE_GXM_PARAMETER_CATEGORY_UNIFORM_BUFFER && sceGxmProgramParameterGetResourceIndex(param) == u->idx)
+			return sceGxmProgramParameterGetArraySize(param); // Size in bytes for uniform buffers
+	}
+	return 0;
+}
+
 /*
  * ------------------------------
  * - IMPLEMENTATION STARTS HERE -
@@ -2456,6 +2550,33 @@ void glGetProgramiv(GLuint progr, GLenum pname, GLint *params) {
 			if (len > i)
 				i = len;
 		}
+		{
+			ubo *u;
+			GLuint block_index;
+			const SceGxmProgramParameter *param;
+			char member_name[256];
+			for (GLuint j = 0; (param = get_block_member(p, j, &u, &block_index)); j++) {
+				int len = strlen(get_block_member_name(u, param, member_name)) + 1;
+				if (len > i)
+					i = len;
+			}
+		}
+		*params = i;
+		break;
+	case GL_ACTIVE_UNIFORM_BLOCKS:
+		*params = get_uniform_blocks_num(p);
+		break;
+	case GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH:
+		i = 0;
+		{
+			ubo *u;
+			shader *s;
+			for (GLuint j = 0; (u = get_uniform_block(p, j, &s)); j++) {
+				int len = strlen(((block_uniform *)u->ptr)->name) + 1;
+				if (len > i)
+					i = len;
+			}
+		}
 		*params = i;
 		break;
 	case GL_ACTIVE_ATTRIBUTE_MAX_LENGTH:
@@ -2474,7 +2595,7 @@ void glGetProgramiv(GLuint progr, GLenum pname, GLint *params) {
 		*params = i;
 		break;
 	case GL_ACTIVE_UNIFORMS:
-		*params = p->vert_uniforms_num + p->frag_uniforms_num;
+		*params = p->vert_uniforms_num + p->frag_uniforms_num + get_block_members_num(p);
 		break;
 	default:
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, pname)
@@ -2813,20 +2934,12 @@ GLuint glGetUniformBlockIndex(GLuint prog, const GLchar *uniformBlockName) {
 	// Grabbing passed program
 	program *p = &progs[prog - 1];
 
-	// Getting the desired location
-	ubo *j = p->vert_ubos;
-	while (j) {
-		block_uniform *b = (block_uniform *)j->ptr;
-		if (!strcmp(b->name, uniformBlockName))
-			return j->alias ? (GLuint)j->alias : (GLuint)j;
-		j = j->chain;
-	}
-	j = p->frag_ubos;
-	while (j) {
-		block_uniform *b = (block_uniform *)j->ptr;
-		if (!strcmp(b->name, uniformBlockName))
-			return (GLuint)j;
-		j = j->chain;
+	// Getting the desired block index
+	ubo *u;
+	shader *s;
+	for (GLuint i = 0; (u = get_uniform_block(p, i, &s)); i++) {
+		if (!strcmp(((block_uniform *)u->ptr)->name, uniformBlockName))
+			return i;
 	}
 
 	return GL_INVALID_INDEX;
@@ -2835,8 +2948,94 @@ GLuint glGetUniformBlockIndex(GLuint prog, const GLchar *uniformBlockName) {
 void glUniformBlockBinding(GLuint prog, GLuint uniformBlockIndex, GLuint uniformBlockBinding) {
 	THREAD_SAFE()
 
-	ubo *u = (ubo *)uniformBlockIndex;
+	// Grabbing passed program
+	program *p = &progs[prog - 1];
+
+	shader *s;
+	ubo *u = get_uniform_block(p, uniformBlockIndex, &s);
+#ifndef SKIP_ERROR_HANDLING
+	if (!u || uniformBlockBinding >= UBOS_NUM) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
 	u->bind = uniformBlockBinding;
+}
+
+void glGetActiveUniformBlockiv(GLuint prog, GLuint uniformBlockIndex, GLenum pname, GLint *params) {
+	// Grabbing passed program
+	program *p = &progs[prog - 1];
+
+	shader *s;
+	ubo *u = get_uniform_block(p, uniformBlockIndex, &s);
+#ifndef SKIP_ERROR_HANDLING
+	if (!u) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+
+	ubo *member_block, *v;
+	GLuint block_index, i;
+	const SceGxmProgramParameter *param;
+	switch (pname) {
+	case GL_UNIFORM_BLOCK_BINDING:
+		*params = u->bind;
+		break;
+	case GL_UNIFORM_BLOCK_DATA_SIZE:
+		*params = get_block_size(s, u);
+		break;
+	case GL_UNIFORM_BLOCK_NAME_LENGTH:
+		*params = strlen(((block_uniform *)u->ptr)->name) + 1;
+		break;
+	case GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS:
+	case GL_UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES:
+		if (pname == GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS)
+			*params = 0;
+		for (i = 0; (param = get_block_member(p, i, &member_block, &block_index)); i++) {
+			if (block_index == uniformBlockIndex) {
+				if (pname == GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS)
+					*params = *params + 1;
+				else
+					*params++ = p->vert_uniforms_num + p->frag_uniforms_num + i;
+			}
+		}
+		break;
+	case GL_UNIFORM_BLOCK_REFERENCED_BY_VERTEX_SHADER:
+		*params = s == p->vshader;
+		for (v = p->vert_ubos; v; v = (ubo *)v->chain) {
+			if (v->alias == u)
+				*params = GL_TRUE;
+		}
+		break;
+	case GL_UNIFORM_BLOCK_REFERENCED_BY_FRAGMENT_SHADER:
+		*params = s == p->fshader;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, pname)
+	}
+}
+
+void glGetActiveUniformBlockName(GLuint prog, GLuint uniformBlockIndex, GLsizei bufSize, GLsizei *length, GLchar *uniformBlockName) {
+	// Grabbing passed program
+	program *p = &progs[prog - 1];
+
+	shader *s;
+	ubo *u = get_uniform_block(p, uniformBlockIndex, &s);
+#ifndef SKIP_ERROR_HANDLING
+	if (!u || bufSize < 0) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+	if (bufSize == 0) {
+		if (length)
+			*length = 0;
+		return;
+	}
+	const char *name = ((block_uniform *)u->ptr)->name;
+	bufSize = min(strlen(name), bufSize - 1);
+	if (length)
+		*length = bufSize;
+	strncpy(uniformBlockName, name, bufSize);
+	uniformBlockName[bufSize] = 0;
 }
 
 GLint glGetUniformLocation(GLuint prog, const GLchar *name) {
@@ -4083,32 +4282,41 @@ void glGetActiveUniform(GLuint prog, GLuint index, GLsizei bufSize, GLsizei *len
 	// Grabbing passed program
 	program *p = &progs[prog - 1];
 
+	// Grabbing desired uniform, block members come after the default uniforms
+	const SceGxmProgramParameter *param;
+	const char *pname;
+	char member_name[256];
+	if (index >= p->vert_uniforms_num + p->frag_uniforms_num) {
+		ubo *b;
+		GLuint block_index;
+		param = get_block_member(p, index - p->vert_uniforms_num - p->frag_uniforms_num, &b, &block_index);
 #ifndef SKIP_ERROR_HANDLING
-	if (bufSize < 0 || (index >= p->vert_uniforms_num + p->frag_uniforms_num)) {
+		if (!param) {
+			SET_GL_ERROR(GL_INVALID_VALUE)
+		}
+#endif
+		pname = get_block_member_name(b, param, member_name);
+	} else {
+		param = index >= p->vert_uniforms_num ? p->frag_uniforms[index - p->vert_uniforms_num].ptr : p->vert_uniforms[index].ptr;
+		pname = sceGxmProgramParameterGetName(param);
+	}
+#ifndef SKIP_ERROR_HANDLING
+	if (bufSize < 0) {
 		SET_GL_ERROR(GL_INVALID_VALUE)
 	}
 #endif
 
-	// Grabbing desired uniform
-	uniform *u;
-	if (index >= p->vert_uniforms_num) {
-		u = &p->frag_uniforms[index - p->vert_uniforms_num];
-	} else {
-		u = &p->vert_uniforms[index];
-	}
-
 	// Detecting uniform type
-	const char *pname = sceGxmProgramParameterGetName(u->ptr);
-	if (sceGxmProgramParameterGetCategory(u->ptr) == SCE_GXM_PARAMETER_CATEGORY_SAMPLER) {
-		*type = sceGxmProgramParameterIsSamplerCube(u->ptr) ? GL_SAMPLER_CUBE : GL_SAMPLER_2D;
+	if (sceGxmProgramParameterGetCategory(param) == SCE_GXM_PARAMETER_CATEGORY_SAMPLER) {
+		*type = sceGxmProgramParameterIsSamplerCube(param) ? GL_SAMPLER_CUBE : GL_SAMPLER_2D;
 		*size = 1;
 	} else {
-		*size = sceGxmProgramParameterGetArraySize(u->ptr);
-		*type = gxm_unif_type_to_gl(sceGxmProgramParameterGetType(u->ptr), sceGxmProgramParameterGetComponentCount(u->ptr), size);
+		*size = sceGxmProgramParameterGetArraySize(param);
+		*type = gxm_unif_type_to_gl(sceGxmProgramParameterGetType(param), sceGxmProgramParameterGetComponentCount(param), size);
 		if (*type >= GL_FLOAT_VEC2 && *type <= GL_FLOAT_VEC4 && *size > 1) {
 			matrix_uniform *m = p->vshader->mat;
 			while (m) {
-				if (m->ptr == u->ptr) {
+				if (m->ptr == param) {
 					gxm_unif_to_mat(type, size);
 					break;
 				}
@@ -4117,7 +4325,7 @@ void glGetActiveUniform(GLuint prog, GLuint index, GLsizei bufSize, GLsizei *len
 			if (!m) {
 				m = p->fshader->mat;
 				while (m) {
-					if (m->ptr == u->ptr) {
+					if (m->ptr == param) {
 						gxm_unif_to_mat(type, size);
 						break;
 					}
@@ -4148,6 +4356,86 @@ void glGetActiveUniform(GLuint prog, GLuint index, GLsizei bufSize, GLsizei *len
 		*length = bufSize;
 	strncpy(name, pname, bufSize);
 	name[bufSize] = 0;
+}
+
+void glGetUniformIndices(GLuint prog, GLsizei uniformCount, const GLchar *const *uniformNames, GLuint *uniformIndices) {
+	GLint active_num;
+	glGetProgramiv(prog, GL_ACTIVE_UNIFORMS, &active_num);
+	for (GLsizei i = 0; i < uniformCount; i++) {
+		// The first element of an array can be named with or without its subscript
+		size_t len = strlen(uniformNames[i]);
+		if (len > 3 && !strcmp(&uniformNames[i][len - 3], "[0]"))
+			len -= 3;
+		uniformIndices[i] = GL_INVALID_INDEX;
+		for (GLint j = 0; j < active_num; j++) {
+			char name[256];
+			GLint size;
+			GLenum type;
+			GLsizei name_len;
+			glGetActiveUniform(prog, j, sizeof(name), &name_len, &size, &type, name);
+			if (name_len == len && !strncmp(name, uniformNames[i], len)) {
+				uniformIndices[i] = j;
+				break;
+			}
+		}
+	}
+}
+
+void glGetActiveUniformsiv(GLuint prog, GLsizei uniformCount, const GLuint *uniformIndices, GLenum pname, GLint *params) {
+	// Grabbing passed program
+	program *p = &progs[prog - 1];
+
+	for (GLsizei i = 0; i < uniformCount; i++) {
+		GLuint index = uniformIndices[i];
+		ubo *b = NULL;
+		GLuint block_index;
+		const SceGxmProgramParameter *param = NULL;
+		if (index >= p->vert_uniforms_num + p->frag_uniforms_num) {
+			param = get_block_member(p, index - p->vert_uniforms_num - p->frag_uniforms_num, &b, &block_index);
+#ifndef SKIP_ERROR_HANDLING
+			if (!param) {
+				SET_GL_ERROR(GL_INVALID_VALUE)
+			}
+#endif
+		}
+		char name[256];
+		GLsizei name_len;
+		GLint size;
+		GLenum type;
+		glGetActiveUniform(prog, index, sizeof(name), &name_len, &size, &type, name);
+		// Array elements and matrix columns are 4 floats apart if they have 3 components, packed otherwise
+		uint32_t comps = param ? sceGxmProgramParameterGetComponentCount(param) : 0;
+		GLint stride = (comps == 3 ? 4 : comps) * sizeof(float);
+		GLboolean is_matrix = type >= GL_FLOAT_MAT2 && type <= GL_FLOAT_MAT4;
+		switch (pname) {
+		case GL_UNIFORM_TYPE:
+			params[i] = type;
+			break;
+		case GL_UNIFORM_SIZE:
+			params[i] = size;
+			break;
+		case GL_UNIFORM_NAME_LENGTH:
+			params[i] = name_len + 1;
+			break;
+		case GL_UNIFORM_BLOCK_INDEX:
+			params[i] = b ? block_index : -1;
+			break;
+		case GL_UNIFORM_OFFSET:
+			params[i] = b ? sceGxmProgramParameterGetResourceIndex(param) * sizeof(float) : -1;
+			break;
+		case GL_UNIFORM_ARRAY_STRIDE:
+			params[i] = b ? (size > 1 ? stride : 0) : -1;
+			break;
+		case GL_UNIFORM_MATRIX_STRIDE:
+			params[i] = b ? (is_matrix ? stride : 0) : -1;
+			break;
+		case GL_UNIFORM_IS_ROW_MAJOR:
+			params[i] = GL_FALSE;
+			break;
+		default:
+			SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, pname)
+		}
+	}
 }
 
 /*
