@@ -799,7 +799,9 @@ static inline __attribute__((always_inline)) void compile_shader(shader *s, GLbo
 			} else if (sceShaccCgGetParameterClass(param) == SCE_SHACCCG_PARAMETERCLASS_UNIFORMBLOCK) {
 				block_uniform *b = (block_uniform *)vglMalloc(sizeof(block_uniform));
 				b->idx = sceShaccCgGetParameterBufferIndex(param);
-				strcpy(b->name, sceShaccCgGetParameterName(param));
+				// The user type is the block name, the parameter name is the instance one
+				const char *block_name = sceShaccCgGetParameterUserType(param);
+				strcpy(b->name, block_name && block_name[0] ? block_name : sceShaccCgGetParameterName(param));
 				b->chain = s->unif_blk;
 				s->unif_blk = b;
 			}
