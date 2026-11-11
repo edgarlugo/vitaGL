@@ -461,6 +461,14 @@ extern "C" {
 #define GL_UNIFORM_BUFFER_BINDING                       0x8A28
 #define GL_UNIFORM_BUFFER_START                         0x8A29
 #define GL_UNIFORM_BUFFER_SIZE                          0x8A2A
+#define GL_MAX_VERTEX_UNIFORM_BLOCKS                    0x8A2B
+#define GL_MAX_FRAGMENT_UNIFORM_BLOCKS                  0x8A2D
+#define GL_MAX_COMBINED_UNIFORM_BLOCKS                  0x8A2E
+#define GL_MAX_UNIFORM_BUFFER_BINDINGS                  0x8A2F
+#define GL_MAX_UNIFORM_BLOCK_SIZE                       0x8A30
+#define GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS       0x8A31
+#define GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS     0x8A33
+#define GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT              0x8A34
 #define GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH         0x8A35
 #define GL_ACTIVE_UNIFORM_BLOCKS                        0x8A36
 #define GL_UNIFORM_TYPE                                 0x8A37
@@ -863,6 +871,7 @@ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbu
 void glFramebufferTexture(GLenum target, GLenum attachment, GLuint texture, GLint level);
 void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
 void glFramebufferTexture2DMultisample(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level, GLsizei samples);
+void glFramebufferTextureLayer(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint layer);
 void glFrontFace(GLenum mode);
 void glFrustum(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble nearVal, GLdouble farVal);
 void glFrustumf(GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat nearVal, GLfloat farVal);

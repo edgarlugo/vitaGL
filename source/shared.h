@@ -38,6 +38,9 @@
 #define COMBINED_TEXTURE_IMAGE_UNITS_NUM 16 // Available combined texture image units
 #define VERTEX_ATTRIBS_NUM 16 // Available vertex attributes
 #define UBOS_NUM 14 // Available uniform buffers bindings
+#define UBO_BLOCKS_NUM (UBOS_NUM - 1) // Uniform blocks per shader, as they use the BUFFER[1] to BUFFER[13] containers
+#define UBO_MAX_SIZE 65536 // Max uniform block size in bytes
+#define UBO_OFFSET_ALIGNMENT 4 // Alignment of uniform buffer ranges
 #define MODELVIEW_STACK_DEPTH 32 // Depth of modelview matrix stack
 #define GENERIC_STACK_DEPTH 2 // Depth of generic matrix stack
 #define DISPLAY_WIDTH_DEF 960 // Default display width in pixels

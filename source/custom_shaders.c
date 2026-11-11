@@ -4322,6 +4322,8 @@ void glBindBufferRange(GLenum target, GLuint index, GLuint buffer, GLintptr offs
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, index)
 	} else if (size <= 0) {
 		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, size)
+	} else if (offset % UBO_OFFSET_ALIGNMENT) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, offset)
 	}
 #endif
 

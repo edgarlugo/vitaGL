@@ -664,6 +664,28 @@ void glFramebufferTexture(GLenum target, GLenum attachment, GLuint tex_id, GLint
 	glFramebufferTexture2D(target, attachment, GL_TEXTURE_2D, tex_id, level);
 }
 
+void glFramebufferTextureLayer(GLenum target, GLenum attachment, GLuint tex_id, GLint level, GLint layer) {
+#ifndef SKIP_ERROR_HANDLING
+	if (tex_id >= TEXTURES_NUM) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, tex_id)
+	}
+#endif
+	if (!tex_id) {
+		glFramebufferTexture2D(target, attachment, GL_TEXTURE_2D, 0, level);
+		return;
+	}
+
+	// Array and 3D textures are not supported, so the only layered textures are cube maps, whose layers are the faces
+#ifndef SKIP_ERROR_HANDLING
+	if (sceGxmTextureGetType(&texture_slots[tex_id].gxm_tex) != SCE_GXM_TEXTURE_CUBE) {
+		SET_GL_ERROR(GL_INVALID_OPERATION)
+	} else if (layer < 0 || layer > 5) {
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_VALUE, layer)
+	}
+#endif
+	glFramebufferTexture2D(target, attachment, GL_TEXTURE_CUBE_MAP_POSITIVE_X + layer, tex_id, level);
+}
+
 void glNamedFramebufferTexture(GLuint target, GLenum attachment, GLuint tex_id, GLint level) {
 	glNamedFramebufferTexture2D(target, attachment, GL_TEXTURE_2D, tex_id, level);
 }
