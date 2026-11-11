@@ -492,6 +492,26 @@ void glGetIntegerv(GLenum pname, GLint *data) {
 	case GL_MAX_FRAGMENT_UNIFORM_COMPONENTS:
 		*data = 2048;
 		break;
+	case GL_MAX_VERTEX_UNIFORM_BLOCKS:
+	case GL_MAX_FRAGMENT_UNIFORM_BLOCKS:
+		*data = UBO_BLOCKS_NUM;
+		break;
+	case GL_MAX_COMBINED_UNIFORM_BLOCKS:
+		*data = UBO_BLOCKS_NUM * 2;
+		break;
+	case GL_MAX_UNIFORM_BUFFER_BINDINGS:
+		*data = UBOS_NUM;
+		break;
+	case GL_MAX_UNIFORM_BLOCK_SIZE:
+		*data = UBO_MAX_SIZE;
+		break;
+	case GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS:
+	case GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS:
+		*data = UBO_BLOCKS_NUM * UBO_MAX_SIZE / 4 + 2048;
+		break;
+	case GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
+		*data = UBO_OFFSET_ALIGNMENT;
+		break;
 	case GL_MAX_VARYING_FLOATS:
 		*data = 40;
 		break;
