@@ -820,6 +820,22 @@ static inline __attribute__((always_inline)) void compile_shader(shader *s, GLbo
 					}
 					member = sceShaccCgGetNextParameter(member);
 				}
+			} else if (sceShaccCgGetParameterVariability(param) == SCE_SHACCCG_VARIABILITY_UNIFORM &&
+				sceShaccCgGetParameterClass(param) != SCE_SHACCCG_PARAMETERCLASS_SAMPLER &&
+				sceShaccCgGetParameterBufferIndex(param) < UBOS_NUM) {
+				// A uniform buffer of a Cg shader (a parameter with a BUFFER[n] semantic): sceGxm programs have
+				// no name for it, so the block is named after the parameter
+				uint32_t idx = sceShaccCgGetParameterBufferIndex(param);
+				block_uniform *b = s->unif_blk;
+				while (b && b->idx != idx)
+					b = (block_uniform *)b->chain;
+				if (!b) {
+					b = (block_uniform *)vglMalloc(sizeof(block_uniform));
+					b->idx = idx;
+					strcpy(b->name, sceShaccCgGetParameterName(param));
+					b->chain = s->unif_blk;
+					s->unif_blk = b;
+				}
 			}
 			param = sceShaccCgGetNextParameter(param);
 		}
@@ -1847,9 +1863,15 @@ static inline __attribute__((always_inline)) float *get_uniform_alias_data_ptr(u
 	return NULL;
 }
 
+// Blocks without details (from a shader cached before Cg blocks were named) have no name: sceGxm programs don't
+// name uniform buffers
+static inline __attribute__((always_inline)) const char *get_block_name(ubo *u) {
+	return u->ptr ? ((block_uniform *)u->ptr)->name : "";
+}
+
 static inline __attribute__((always_inline)) ubo *has_block_alias(ubo *u, const char *name) {
 	while (u) {
-		if (!strcmp(name, ((block_uniform*)u->ptr)->name)) {
+		if (name[0] && !strcmp(name, get_block_name(u))) {
 			return u;
 		}
 		u = u->chain;
@@ -1924,7 +1946,7 @@ static GLuint get_block_members_num(program *p) {
 // Members are named "instance.member" in sceGxm programs, anonymous blocks are named after the block by the GLSL translator
 static const char *get_block_member_name(ubo *u, const SceGxmProgramParameter *param, char *buf) {
 	const char *name = sceGxmProgramParameterGetName(param);
-	const char *block_name = ((block_uniform *)u->ptr)->name;
+	const char *block_name = get_block_name(u);
 	const char *member = strchr(name, '.');
 	if (!member)
 		return name;
@@ -2572,7 +2594,7 @@ void glGetProgramiv(GLuint progr, GLenum pname, GLint *params) {
 			ubo *u;
 			shader *s;
 			for (GLuint j = 0; (u = get_uniform_block(p, j, &s)); j++) {
-				int len = strlen(((block_uniform *)u->ptr)->name) + 1;
+				int len = strlen(get_block_name(u)) + 1;
 				if (len > i)
 					i = len;
 			}
@@ -2837,7 +2859,7 @@ void glLinkProgram(GLuint progr) {
 			u->idx = sceGxmProgramParameterGetResourceIndex(param);
 			u->ptr = (const SceGxmProgramParameter *)get_block_details(p->vshader->unif_blk, u->idx);
 			u->bind = 0;
-			u->alias = has_block_alias(p->frag_ubos, ((block_uniform *)u->ptr)->name);
+			u->alias = has_block_alias(p->frag_ubos, get_block_name(u));
 			p->vert_ubos = u;
 		}
 		ptr += 4;
@@ -2945,7 +2967,7 @@ GLuint glGetUniformBlockIndex(GLuint prog, const GLchar *uniformBlockName) {
 	ubo *u;
 	shader *s;
 	for (GLuint i = 0; (u = get_uniform_block(p, i, &s)); i++) {
-		if (!strcmp(((block_uniform *)u->ptr)->name, uniformBlockName))
+		if (!strcmp(get_block_name(u), uniformBlockName))
 			return i;
 	}
 
@@ -2991,7 +3013,7 @@ void glGetActiveUniformBlockiv(GLuint prog, GLuint uniformBlockIndex, GLenum pna
 		*params = get_block_size(s, u);
 		break;
 	case GL_UNIFORM_BLOCK_NAME_LENGTH:
-		*params = strlen(((block_uniform *)u->ptr)->name) + 1;
+		*params = strlen(get_block_name(u)) + 1;
 		break;
 	case GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS:
 	case GL_UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES:
@@ -3037,7 +3059,7 @@ void glGetActiveUniformBlockName(GLuint prog, GLuint uniformBlockIndex, GLsizei 
 			*length = 0;
 		return;
 	}
-	const char *name = ((block_uniform *)u->ptr)->name;
+	const char *name = get_block_name(u);
 	bufSize = min(strlen(name), bufSize - 1);
 	if (length)
 		*length = bufSize;
